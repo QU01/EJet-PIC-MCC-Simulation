@@ -1,0 +1,82 @@
+/* General Styles */
+body {
+    padding-top: 56px;
+    background-color: #f8f9fa;
+}
+
+.card {
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.card-header {
+    font-weight: 500;
+}
+
+/* Parameter Cards */
+.parameter-card {
+    transition: transform 0.3s;
+    border-radius: 12px;
+}
+
+.parameter-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important;
+}
+
+/* Heatmap styling */
+#temperature-heatmap, #density-heatmap {
+    height: 400px;
+    width: 100%;
+}
+
+.tooltip {
+    position: absolute;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    border-radius: 5px;
+    pointer-events: none;
+    font-size: 14px;
+}
+
+/* Table styling */
+.table-responsive {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#search-results-table tr:first-child {
+    background-color: rgba(13, 110, 253, 0.1);
+    font-weight: bold;
+}
+
+/* Loading spinner */
+.fa-spin {
+    animation: fa-spin 1s infinite linear;
+}
+
+@keyframes fa-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Tab transitions */
+.tab-pane {
+    animation: fadeIn 0.5s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.tab-pane .card .card-body canvas {
+    height: 500px; /* Ajusta este valor para la altura de las gráficas */
+}
+
+/* Para los heatmaps de D3.js (si es necesario, ajusta el selector) */
+.tab-pane .card .card-body #temperature-heatmap svg,
+.tab-pane .card .card-body #density-heatmap svg {
+    height: 500px; /* Ajusta este valor para la altura de los heatmaps */
+}

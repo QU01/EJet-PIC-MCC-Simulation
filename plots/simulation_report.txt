@@ -1,0 +1,30 @@
+--- Reporte de Simulación PIC-MCC ---
+Fecha y Hora: 2025-02-26T15:55:10.280
+
+--- Parámetros de Simulación ---
+Temperatura Inicial: 800.0 K
+Presión Inicial: 1.0 MPa
+Densidad Inicial del Aire: 9.0537131450499e25 m^-3
+Energía Inicial de los Electrones: 200 eV
+Campo Magnético Axial (Bz): 0.5 T
+Paso de Tiempo (dt): 1.0e-12 s
+Tiempo de Simulación por paso: 1.0e-12 s
+Electrones Simulados por paso: 100
+Temperatura Objetivo: 2200.0 K
+Máximo número de pasos: 1000
+
+--- Resultados ---
+Temperatura Final Promedio: 2207.313185759017 K
+Alcanzó Temperatura Objetivo: true
+Número de Pasos Simulados: 192
+Tiempo Total de Simulación: 1.92e-10 s
+Aumento Total de Energía Interna del Aire: 2638.7122232981587 J
+Energía Total Introducida por Electrones: 3076.1855999999975 J
+Eficiencia de la Simulación: 85.46454331352497 %
+Eficiencia Promedio por Paso: 85.46454331352497 %
+
+--- Plots ---
+Temperatura Promedio vs Tiempo: temperature_vs_time.png
+Eficiencia Promedio vs Tiempo: efficiency_vs_time.png
+Densidad de Electrones al Final (Slice): density_heatmap.png
+Temperatura del Aire al Final (Slice): temperature_heatmap.png

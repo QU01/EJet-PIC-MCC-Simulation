@@ -1,0 +1,20 @@
+--- Resultados de Búsqueda de Parámetros ---
+Fecha y Hora: 2025-02-26T15:54:21.230
+
+--- Mejores Parámetros ---
+Energía de Electrón: 50.0 eV
+Presión: 1.0 MPa
+Campo Magnético: 0.5 T
+Eficiencia Promedio por Paso: 40.80231153336062 %
+
+--- Top 10 Combinaciones de Parámetros ---
+Rank 1: Energía = 50.0 eV, Presión = 1.0 MPa, Campo = 0.5 T, Eficiencia Promedio por Paso = 40.8 %
+Rank 2: Energía = 50.0 eV, Presión = 1.0 MPa, Campo = 1.0 T, Eficiencia Promedio por Paso = 40.8 %
+Rank 3: Energía = 50.0 eV, Presión = 1.0 MPa, Campo = 1.5 T, Eficiencia Promedio por Paso = 40.8 %
+Rank 4: Energía = 50.0 eV, Presión = 1.0 MPa, Campo = 2.0 T, Eficiencia Promedio por Paso = 40.8 %
+Rank 5: Energía = 50.0 eV, Presión = 3.0 MPa, Campo = 0.5 T, Eficiencia Promedio por Paso = 40.74 %
+Rank 6: Energía = 50.0 eV, Presión = 3.0 MPa, Campo = 1.0 T, Eficiencia Promedio por Paso = 40.74 %
+Rank 7: Energía = 50.0 eV, Presión = 3.0 MPa, Campo = 1.5 T, Eficiencia Promedio por Paso = 40.74 %
+Rank 8: Energía = 50.0 eV, Presión = 3.0 MPa, Campo = 2.0 T, Eficiencia Promedio por Paso = 40.74 %
+Rank 9: Energía = 50.0 eV, Presión = 4.0 MPa, Campo = 0.5 T, Eficiencia Promedio por Paso = 40.74 %
+Rank 10: Energía = 50.0 eV, Presión = 4.0 MPa, Campo = 1.0 T, Eficiencia Promedio por Paso = 40.74 %

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Simulación PIC-MCC</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        :root {
+            --chart-height: 70vh;
+            --secondary-color: #2c3e50;
+            --accent-color: #3498db;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .navbar {
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .container-fluid {
+            flex: 1;
+            padding-top: 80px;
+        }
+
+        .card {
+            border: none;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            transition: transform 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card-header {
+            background: linear-gradient(45deg, var(--secondary-color), var(--accent-color));
+            border-bottom: none;
+        }
+
+        .chart-container {
+            height: var(--chart-height);
+            padding: 15px;
+        }
+
+        .parameter-card {
+            border-left: 4px solid var(--accent-color);
+        }
+
+        .table thead th {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+
+        footer {
+            margin-top: auto;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+
+        @media (max-width: 768px) {
+            :root {
+                --chart-height: 50vh;
+            }
+            
+            .container-fluid {
+                padding-top: 60px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-bolt"></i> Simulación PIC-MCC
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#main">Principal</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#parameters">Comparación Paramétrica</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#spatial">Distribuciones Espaciales</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#detailed">Datos Detallados</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid">
+        <!-- Alert for loading data -->
+        <div id="data-loading" class="alert alert-info alert-dismissible fade show" role="alert">
+            <i class="fas fa-spinner fa-spin"></i> Cargando datos de simulación...
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- Alert for errors -->
+        <div id="data-error" class="alert alert-danger alert-dismissible fade show d-none" role="alert">
+            <i class="fas fa-exclamation-triangle"></i> Error al cargar datos. Asegúrate de que los archivos CSV estén disponibles en la carpeta "simulation_data".
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- Optimal Parameters Card -->
+        <div class="card mb-4 shadow">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-star"></i> Parámetros Óptimos</h5>
+            </div>
+            <div class="card-body">
+                <div class="row" id="optimal-params">
+                    <div class="col-md-3 mb-3">
+                        <div class="card text-center h-100 parameter-card shadow-sm">
+                            <div class="card-body">
+                                <h5 class="card-title">Energía de Electrones</h5>
+                                <h2 id="opt-energy" class="display-6 fw-bold text-primary">--</h2>
+                                <p class="card-text">eV</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="card text-center h-100 parameter-card shadow-sm">
+                            <div class="card-body">
+                                <h5 class="card-title">Presión</h5>
+                                <h2 id="opt-pressure" class="display-6 fw-bold text-primary">--</h2>
+                                <p class="card-text">MPa</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="card text-center h-100 parameter-card shadow-sm">
+                            <div class="card-body">
+                                <h5 class="card-title">Campo Magnético</h5>
+                                <h2 id="opt-field" class="display-6 fw-bold text-primary">--</h2>
+                                <p class="card-text">Tesla</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="card text-center h-100 parameter-card shadow-sm bg-primary-subtle">
+                            <div class="card-body">
+                                <h5 class="card-title">Eficiencia</h5>
+                                <h2 id="opt-efficiency" class="display-6 fw-bold text-primary">--</h2>
+                                <p class="card-text">%</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Main Tab -->
+            <div class="tab-pane fade show active" id="main">
+                <div class="row g-4">
+                    <!-- Temperature vs Time -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-temperature-high"></i> Temperatura vs Tiempo</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <canvas id="temperature-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Efficiency vs Time -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-chart-line"></i> Eficiencia vs Tiempo</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <canvas id="efficiency-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Energy Transfer -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-exchange-alt"></i> Transferencia de Energía</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <canvas id="energy-transfer-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Electron Count -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-atom"></i> Conteo de Electrones</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <canvas id="electron-count-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Simulation Parameters -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-cogs"></i> Parámetros de Simulación</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped" id="param-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Parámetro</th>
+                                                <th>Valor</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Filled by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Parameters Comparison Tab -->
+            <div class="tab-pane fade" id="parameters">
+                <div class="row g-4">
+                    <!-- Efficiency vs Electron Energy -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-bolt"></i> Eficiencia vs Energía de Electrones</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <canvas id="efficiency-energy-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Efficiency vs Pressure -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-compress-alt"></i> Eficiencia vs Presión</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <canvas id="efficiency-pressure-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Efficiency vs Magnetic Field -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-magnet"></i> Eficiencia vs Campo Magnético</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <canvas id="efficiency-field-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parameter Search Results -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-search"></i> Top 10 Combinaciones</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover" id="search-results-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Rank</th>
+                                                <th>Energía (eV)</th>
+                                                <th>Presión (MPa)</th>
+                                                <th>Campo (T)</th>
+                                                <th>Eficiencia (%)</th>
+                                                <th>Temperatura (K)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Filled by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Spatial Distributions Tab -->
+            <div class="tab-pane fade" id="spatial">
+                <div class="row g-4">
+                    <!-- Temperature Heatmap -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-fire"></i> Distribución de Temperatura</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <div id="temperature-heatmap"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Density Heatmap -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-atom"></i> Distribución de Densidad de Electrones</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="chart-container">
+                                    <div id="density-heatmap"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed Data Tab -->
+            <div class="tab-pane fade" id="detailed">
+                <div class="row g-4">
+                    <!-- Detailed Data Table -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-table"></i> Datos Detallados de Simulación</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover" id="detailed-data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Tiempo (μs)</th>
+                                                <th>Electrones</th>
+                                                <th>Temperatura (K)</th>
+                                                <th>Energía Entrada (J)</th>
+                                                <th>Energía Transferida (J)</th>
+                                                <th>Eficiencia (%)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Filled by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Download Buttons -->
+                    <div class="col-12">
+                        <div class="card shadow">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fas fa-download"></i> Descargar Datos</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2">
+                                    <div class="col-md-4">
+                                        <a id="download-temp-time" href="#" class="btn btn-outline-primary w-100">
+                                            <i class="fas fa-temperature-high"></i> Temperatura vs Tiempo
+                                        </a>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <a id="download-efficiency-time" href="#" class="btn btn-outline-primary w-100">
+                                            <i class="fas fa-chart-line"></i> Eficiencia vs Tiempo
+                                        </a>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <a id="download-detailed" href="#" class="btn btn-outline-primary w-100">
+                                            <i class="fas fa-database"></i> Datos Detallados
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white text-center py-3">
+        <div class="container">
+            <p class="mb-0">Dashboard de Simulación PIC-MCC © 2023</p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Papa Parse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <!-- Custom JS -->
+    <script src="dashboard.js"></script>
+</body>
+</html>
