@@ -2,6 +2,22 @@ using Dates
 using DataFrames
 using CSV
 
+function calculate_energy_based_efficiency(initial_temperature, final_temperature, initial_air_density_n, cell_volume, total_cells, accumulated_input_energy)
+    # Calcular energía interna inicial y final del gas (ideal)
+    initial_internal_energy = (3/2) * k_b * initial_temperature * initial_air_density_n * cell_volume * total_cells
+    final_internal_energy = (3/2) * k_b * final_temperature * initial_air_density_n * cell_volume * total_cells
+    delta_internal_energy = final_internal_energy - initial_internal_energy
+    
+    # Calcular eficiencia
+    if accumulated_input_energy > 0
+        efficiency = (delta_internal_energy / accumulated_input_energy) * 100
+    else
+        efficiency = 0.0
+    end
+    
+    return efficiency, delta_internal_energy, initial_internal_energy, final_internal_energy
+end
+
 # --- Función para Generar Reporte de Simulación ---
 function generate_report(filename, initial_temperature, initial_pressure, electron_injection_energy_eV, magnetic_field_strength, dt, simulation_time, simulated_electrons_per_step, efficiency_simulation, increase_internal_energy, total_input_energy, final_step, reached_target_temp, avg_temps_history_julia, avg_efficiency_julia)
     open(filename, "w") do io
@@ -32,6 +48,16 @@ function generate_report(filename, initial_temperature, initial_pressure, electr
         println(io, "Eficiencia Promedio vs Tiempo: efficiency_vs_time.png") # Added efficiency vs time plot to report
         println(io, "Densidad de Electrones al Final (Slice): density_heatmap.png")
         println(io, "Temperatura del Aire al Final (Slice): temperature_heatmap.png")
+        final_temperature = avg_temps_history_julia[end]
+        energy_based_efficiency, delta_U, initial_U, final_U = calculate_energy_based_efficiency(
+            initial_temperature, final_temperature, initial_air_density_n, cell_volume, TOTAL_CELLS, accumulated_input_energy
+        )
+        println("\n--- Eficiencia Basada en Energía Interna ---")
+        println("Energía Interna Inicial del Gas: $(initial_U) J")
+        println("Energía Interna Final del Gas: $(final_U) J")
+        println("Cambio en Energía Interna (ΔU): $(delta_U) J")
+        println("Energía Total de Electrones (Input): $(accumulated_input_energy) J")
+        println("Eficiencia Térmica Global: $(round(energy_based_efficiency, digits=2)) %")
     end
     println("\nReporte guardado en: $(filename)")
 end

@@ -221,7 +221,7 @@ end
 
 function parameter_search()
     # Definir rangos de búsqueda para los parámetros
-    electron_energies = [50.0, 100.0, 150.0, 200.0]  # eV
+    electron_energies = [10.0, 25.0, 50.0, 100.0, 150.0, 200.0, 500.0, 750.0, 1000.0]  # eV
     pressures = [1e6, 2e6, 3e6, 4e6]  # Pa
     magnetic_fields = [0.5, 1.0, 1.5, 2.0]  # Tesla
 

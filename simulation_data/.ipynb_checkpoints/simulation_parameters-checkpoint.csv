@@ -1,0 +1,13 @@
+Parameter,Value
+Initial Temperature (K),800.0
+Target Temperature (K),2200.0
+Initial Pressure (MPa),1.0
+Electron Energy (eV),10.0
+Magnetic Field (T),0.5
+Time Step (s),1.0e-12
+Chamber Width (mm),100.0
+Chamber Length (mm),100.0
+Chamber Height (mm),100.0
+Final Average Temperature (K),1184.806784719217
+Average Efficiency (%),90.0663747329928
+Total Simulation Time (μs),0.001

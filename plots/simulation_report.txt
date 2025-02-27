@@ -1,5 +1,5 @@
 --- Reporte de Simulación PIC-MCC ---
-Fecha y Hora: 2025-02-26T15:55:10.280
+Fecha y Hora: 2025-02-27T11:01:00.395
 
 --- Parámetros de Simulación ---
 Temperatura Inicial: 800.0 K

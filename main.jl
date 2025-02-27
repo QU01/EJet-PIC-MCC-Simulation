@@ -78,7 +78,7 @@ println("\nResultados guardados en parametros_optimos.txt")
 
 # Ejecutar la simulación completa con los mejores parámetros
 println("\n--- Ejecutando Simulación Completa con Parámetros Óptimos ---")
-electron_injection_energy_eV = best_params[1]
+electron_injection_energy_eV = 200
 initial_pressure = best_params[2]
 magnetic_field_strength = best_params[3]
 
