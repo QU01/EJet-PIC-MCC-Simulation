@@ -127,20 +127,45 @@ The notebook includes:
 - Advanced regression models for efficiency prediction
 - Principal Component Analysis (PCA) for dimensionality reduction
 
+### Visualizing Results in Web Interface
+The project includes an interactive web dashboard (`index.html`) to visualize the simulation results. To launch it:
+
+1. Start a local web server:
+   ```bash
+   # Using Python
+   python -m http.server 8000
+   
+   # Or using dotnet-serve
+   dotnet serve -p 8000
+   ```
+
+2. Open your browser and navigate to:
+   ```
+   http://localhost:8000
+   ```
+
+The web interface provides:
+- Real-time visualization of simulation results
+- Interactive charts and heatmaps
+- Parameter optimization analysis
+- Detailed data tables
+- Downloadable reports and data
+
 ### Parallel Execution (Optional)
 For larger simulations, you can run in parallel:
-```bash
+````bash
 julia -p 4 main.jl  # Use 4 processes
-```
+````
+
 
 ### Cleanup
 To remove generated files:
-```bash
+````bash
 rm -rf plots/*.png plots/simulation_report.txt optimal_parameters.txt simulation_data.csv
-```
+````
+
 
 Now you're ready to run and modify the PIC-MCC simulation!
-
 
 ## 3. Code Description
 

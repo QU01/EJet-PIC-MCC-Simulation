@@ -1,5 +1,5 @@
 --- Resultados de Búsqueda de Parámetros ---
-Fecha y Hora: 2025-02-27T11:00:22.979
+Fecha y Hora: 2025-02-27T11:49:13.300
 
 --- Mejores Parámetros ---
 Energía de Electrón: 10.0 eV
