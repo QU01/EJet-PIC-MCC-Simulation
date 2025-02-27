@@ -31,16 +31,127 @@ The simulation numerically solves the following physical equations:
 
 ---
 
-## 2. Descripción del Código
+## 2. Usage Guide
 
-El código implementa una simulación tridimensional que rastrea el movimiento de electrones individuales en un gas (aire) bajo la influencia de un campo magnético. Utiliza un enfoque híbrido PIC-MCC donde:
+### Prerequisites
+1. **Julia**: Ensure you have Julia installed (version 1.8 or higher)
+2. **Required Packages**:
+   ```julia
+   using Pkg
+   Pkg.add(["Plots", "Interpolations", "DataFrames", "Statistics", "Random", "Dates"])
+   ```
 
-- Las partículas (electrones) se mueven continuamente en el espacio 3D
-- El gas se modela como un medio continuo con densidad uniforme
-- Las colisiones se modelan mediante procesos estocásticos de Monte Carlo
-- La energía se deposita en una malla discreta para el cálculo de temperatura
+### Initial Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your_username/pic-mcc-simulation.git
+   cd pic-mcc-simulation
+   ```
 
-### Constantes Físicas y Propiedades del Aire
+2. Open the main file `main.jl` to configure basic parameters:
+   ```julia
+   # --- Chamber Parameters ---
+   chamber_width = 0.1    # Chamber width [m]
+   chamber_length = 0.1   # Chamber length [m]
+   chamber_height = 0.1   # Chamber height [m]
+   
+   # --- Simulation Parameters ---
+   initial_temperature = 800.0    # Initial temperature [K]
+   target_temperature = 2200.0    # Target temperature [K]
+   dt = 1e-12                     # Time step [s]
+   ```
+
+### Running the Simulation
+1. To execute the complete simulation:
+   ```bash
+   julia main.jl
+   ```
+
+2. The simulation will perform:
+   - Automatic optimization of parameters
+   - Complete PIC-MCC simulation
+   - Generation of graphs and reports
+
+### Results and Outputs
+The program will generate the following files:
+1. **Data Files**:
+   - `optimal_parameters.txt`: Best parameters found
+   - `simulation_data.csv`: Detailed simulation data
+
+2. **Graphs** (in the `plots/` folder):
+   - `temperature_vs_time.png`: Temperature evolution
+   - `efficiency_vs_time.png`: Heating efficiency
+   - `density_heatmap.png`: Electron density distribution
+   - `temperature_heatmap.png`: Temperature distribution
+
+3. **Final Report**:
+   - `plots/simulation_report.txt`: Detailed simulation summary
+
+### Customizing the Simulation
+You can modify the following aspects:
+1. **Physical Parameters**:
+   ```julia
+   # In main.jl
+   electron_injection_energy_eV = 200    # Electron injection energy [eV]
+   initial_pressure = 1e6                # Initial pressure [Pa]
+   magnetic_field_strength = 0.5         # Magnetic field [T]
+   ```
+
+2. **Grid Configuration**:
+   ```julia
+   num_x_cells = 20    # Number of cells in x direction
+   num_y_cells = 20    # Number of cells in y direction
+   num_z_cells = 50    # Number of cells in z direction
+   ```
+
+3. **Simulation Conditions**:
+   ```julia
+   max_steps = 1000                     # Maximum number of steps
+   simulated_electrons_per_step = 100    # Simulated electrons per step
+   ```
+
+### Data Analysis with Jupyter Notebook
+The project includes a comprehensive data analysis notebook (`DataAnalysis.ipynb`) that provides advanced insights into the simulation results. To use it:
+
+1. Ensure you have Jupyter Notebook installed
+2. Open the notebook:
+   ```bash
+   jupyter notebook DataAnalysis.ipynb
+   ```
+
+The notebook includes:
+- Statistical analysis of simulation results
+- Efficiency trend visualizations
+- Correlation heatmaps
+- 3D relationship plots between parameters
+- Advanced regression models for efficiency prediction
+- Principal Component Analysis (PCA) for dimensionality reduction
+
+### Parallel Execution (Optional)
+For larger simulations, you can run in parallel:
+```bash
+julia -p 4 main.jl  # Use 4 processes
+```
+
+### Cleanup
+To remove generated files:
+```bash
+rm -rf plots/*.png plots/simulation_report.txt optimal_parameters.txt simulation_data.csv
+```
+
+Now you're ready to run and modify the PIC-MCC simulation!
+
+
+## 3. Code Description
+
+The code implements a three-dimensional simulation that tracks the movement of individual electrons in a gas (air) under the influence of a magnetic field. It uses a hybrid PIC-MCC approach where:
+
+-   Particles (electrons) move continuously in 3D space.
+-   The gas is modeled as a continuous medium with uniform density.
+-   Collisions are modeled using stochastic Monte Carlo processes.
+-   Energy is deposited on a discrete grid for temperature calculation.
+
+### Physical Constants and Air Properties
 
 ```julia
 const k_b = 1.380649e-23       # Boltzmann constant [J/K]
@@ -76,9 +187,9 @@ num_z_cells = 50       # Number of cells in z direction
 
 ---
 
-## 3. Componentes Principales
+## 4. Main Components
 
-### 3.1 Secciones Eficaces de Colisión
+### 4.1 Collision Cross Sections
 
 The code uses experimental data for the collision cross sections of Nitrogen (N2) and Oxygen (O2) based on Itikawa's studies. These cross sections describe the probability of different types of electron-molecule interactions as a function of electron energy.
 
@@ -106,7 +217,7 @@ end
 
 This function estimates the excitation cross section as the difference between the total and ionization cross sections, modulated by a factor that decreases exponentially with energy above the ionization threshold.
 
-### 3.2 Cálculo de Densidad y Velocidad Electrónica
+### 4.2 Calculation of Electron Density and Velocity
 
 ```julia
 function calculate_air_density_n(pressure, temperature)
@@ -127,7 +238,7 @@ These functions implement:
 -   The ideal gas law:  $n = \frac{P}{k_B T}$
 -   The relationship between kinetic energy and velocity: $E_k = \frac{1}{2}mv^2$
 
-### 3.3 Inicialización de Electrones
+### 4.3 Electron Initialization
 
 ```julia
 function initialize_electrons(num_electrons, chamber_width, chamber_length, initial_electron_velocity)
@@ -150,9 +261,9 @@ Electrons are initialized with a uniform spatial distribution in the XY plane at
 
 ---
 
-## 4. Algoritmos Clave
+## 5. Key Algorithms
 
-### 4.1 Algoritmo de Boris para Movimiento en Campo Magnético
+### 5.1 Boris Algorithm for Movement in a Magnetic Field
 
 ```julia
 function move_electrons(positions, velocities, dt, magnetic_field, electron_charge, electron_mass)
@@ -224,7 +335,7 @@ $$\omega_c = \frac{|q|B}{m}$$
 And the period:
 $$T_c = \frac{2\pi}{\omega_c} = \frac{2\pi m}{|q|B}$$
 
-### 4.2 Condiciones de Frontera
+### 5.2 Boundary Conditions
 
 ```julia
 function apply_rectangular_boundary_conditions(positions, velocities, chamber_width, chamber_length, chamber_height)
@@ -343,7 +454,7 @@ $$\frac{\Delta E}{E} = \frac{2m_e}{M_{gas}}$$
 
 Where $m_e$ is the electron mass and $M_{gas}$ is the molecular mass of the gas.
 
-### 4.4 Deposición de Energía en Malla
+### 5.4 Energy Deposition on the Grid
 
 ```julia
 function deposit_energy(positions, energy_transfer, x_grid, y_grid, z_grid)
@@ -368,7 +479,7 @@ $$\Delta T = \frac{2}{3 k_B n V_{cell}} \Delta E$$
 This equation comes from the relationship between internal energy and temperature for an ideal gas:
 $$E_{internal} = \frac{3}{2} n k_B T V_{cell}$$
 
-### 4.5 Algoritmo Principal de Simulación
+### 5.5 Main Simulation Algorithm
 
 ```julia
 function run_pic_simulation(initial_positions, initial_velocities, initial_temperature_grid,
@@ -422,11 +533,11 @@ end
 
 ---
 
-## 5. Validación y Optimización
+## 6. Validation and Optimization
 
-### 5.1 Verificación de la Conservación de Energía
+### 6.1 Energy Conservation Verification
 
-El código implementa varias verificaciones para garantizar que la energía se conserve apropiadamente durante la simulación:
+The code implements several checks to ensure that energy is properly conserved during the simulation:
 
 1.  **In the Boris algorithm**: Ensuring that the movement in the magnetic field does not alter the kinetic energy.
 2.  **In the collision process**: Verifying that the transferred energy does not exceed the electron's energy.
@@ -438,7 +549,7 @@ $$\left|\frac{E_{loss} - E_{transferred}}{E_{transferred}}\right| < \epsilon$$
 
 where $\epsilon$ is a small tolerance (typically 0.01).
 
-### 5.2 Time Step Validity
+### 6.2 Time Step Validity
 
 The time step must satisfy two conditions:
 
@@ -448,9 +559,8 @@ The time step must satisfy two conditions:
 2.  **Cyclotron condition** for accuracy in a magnetic field:
     $$dt < \frac{0.1 \cdot 2\pi m_e}{|q|B}$$
 
-### 5.3 Búsqueda Paramétrica para Optimización
-
-La función `parameter_search()` explora sistemáticamente el espacio de parámetros:
+### 5.3 Parametric Search for Optimization
+The `parameter_search()` function systematically explores the parameter space:
 
 ```julia
 function parameter_search()
@@ -481,8 +591,7 @@ The efficiency is calculated as:
 $$\eta = \frac{E_{transferred \, to \, gas}}{E_{total \, input}} \times 100\%$$
 
 ---
-
-## 6. Conclusiones
+## 7. Conclusions
 
 The implemented PIC-MCC simulation allows modeling the heating of a gas by electron impact under the influence of magnetic fields. The main conclusions are:
 
@@ -494,10 +603,10 @@ The implemented PIC-MCC simulation allows modeling the heating of a gas by elect
 
 4.  **Parametric Optimization**: Systematic search allows identifying the optimal parameters (electron energy, pressure, magnetic field) to maximize heating efficiency.
 
-5. **Diagnósticos Detallados**: El seguimiento paso a paso de la energía y temperatura permite comprender la física del proceso.
+5.  **Detailed Diagnostics**: Step-by-step tracking of energy and temperature allows understanding the physics of the process.
+The results show that the heating efficiency strongly depends on the operating parameters, and the model provides a valuable tool for optimizing these parameters in practical applications of plasma generation and gas heating.
 
-Los resultados muestran que la eficiencia del calentamiento depende fuertemente de los parámetros operativos, y el modelo proporciona una herramienta valiosa para optimizar estos parámetros en aplicaciones prácticas de generación de plasma y calentamiento de gases.
-## 7. Resultados de la Simulación
+## 8. Simulation Results
 
 ### --- PIC-MCC Simulation Results ---
 
@@ -544,4 +653,4 @@ The PIC-MCC simulation of air heating to a target temperature of 2200.0 K has be
 
 *   **Next Steps:** The [Final Electron Density (Slice)](density_heatmap.png) and [Final Air Temperature (Slice)](temperature_heatmap.png) graphs (not included in this report) would provide detailed spatial information on the electron density distribution and air temperature at the end of the simulation. These graphs would be useful for analyzing the uniformity of heating and the spatial distribution of the generated plasma.
 
-En resumen, la simulación demuestra un método eficiente y rápido para calentar aire utilizando un plasma generado mediante descarga en gas, con una alta eficiencia de transferencia de energía de los electrones al gas. Los resultados obtenidos son consistentes con los parámetros de simulación y proporcionan información valiosa para la optimización de sistemas de calentamiento de plasma.
+In summary, the simulation demonstrates an efficient and rapid method for heating air using a plasma generated by gas discharge, with a high efficiency of energy transfer from electrons to the gas. The results obtained are consistent with the simulation parameters and provide valuable information for the optimization of plasma heating systems.
