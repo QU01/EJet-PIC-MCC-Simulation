@@ -226,7 +226,7 @@ function parameter_search()
     magnetic_fields = [0.5, 1.0, 1.5, 2.0]  # Tesla
 
     # Número reducido de pasos para la búsqueda rápida
-    search_max_steps = 20
+    search_max_steps = 200
 
     # Inicializar almacenamiento de resultados
     results = DataFrame(

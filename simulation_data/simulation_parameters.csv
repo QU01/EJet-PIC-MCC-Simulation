@@ -8,6 +8,6 @@ Time Step (s),1.0e-12
 Chamber Width (mm),100.0
 Chamber Length (mm),100.0
 Chamber Height (mm),100.0
-Final Average Temperature (K),2207.313185759017
-Average Efficiency (%),85.46454331352497
-Total Simulation Time (μs),0.000192
+Final Average Temperature (K),2203.2771669057943
+Average Efficiency (%),45.61744151282013
+Total Simulation Time (μs),0.00036

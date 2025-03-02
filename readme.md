@@ -38,13 +38,13 @@ The simulation numerically solves the following physical equations:
 2. **Required Packages**:
    ```julia
    using Pkg
-   Pkg.add(["Plots", "Interpolations", "DataFrames", "Statistics", "Random", "Dates"])
+   Pkg.add(["Plots", "Interpolations", "DataFrames", "Statistics", "Random", "Dates", "CSV", "StatsBase"])
    ```
 
 ### Initial Setup
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your_username/pic-mcc-simulation.git
+   git clone https://github.com/QU01/pic-mcc-simulation.git
    cd pic-mcc-simulation
    ```
 

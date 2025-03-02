@@ -120,35 +120,16 @@ function apply_rectangular_boundary_conditions(positions, velocities, chamber_wi
     x = positions[:, 1]
     y = positions[:, 2]
     z = positions[:, 3]
-    vx = velocities[:, 1]
-    vy = velocities[:, 2]
-    vz = velocities[:, 3]
 
-    reflect_x_min = x .< 0
-    reflect_x_max = x .> chamber_width
-    x = ifelse.(reflect_x_min, .-x, ifelse.(reflect_x_max, chamber_width .- (x .- chamber_width), x))
-    vx = ifelse.(reflect_x_min .| reflect_x_max, .-vx, vx)
+    # Crear máscara para electrones dentro de los límites de la cámara
+    mask_alive = (x .>= 0.0) .& (x .<= chamber_width) .&
+                 (y .>= 0.0) .& (y .<= chamber_length) .&
+                 (z .>= 0.0) .& (z .<= chamber_height)
 
-    reflect_y_min = y .< 0
-    reflect_y_max = y .> chamber_length
-    y = ifelse.(reflect_y_min, .-y, ifelse.(reflect_y_max, chamber_length .- (y .- chamber_length), y))
-    vy = ifelse.(reflect_y_min .| reflect_y_max, .-vy, vy)
+    # Filtrar electrones que permanecen dentro
+    positions_alive = positions[mask_alive, :]
+    velocities_alive = velocities[mask_alive, :]
 
-    reflect_bottom = z .< 0
-    z = ifelse.(reflect_bottom, .-z, z)
-    vz = ifelse.(reflect_bottom, .-vz, vz)
-
-    reflect_top = z .> chamber_height
-    z = ifelse.(reflect_top, chamber_height .- (z .- chamber_height), z)
-    vz = ifelse.(reflect_top, .-vz, vz)
-
-    positions_updated = hcat(x, y, z)
-    velocities_updated = hcat(vx, vy, vz)
-    positions_alive = positions_updated
-    velocities_alive = velocities_updated
-    mask_alive = positions_updated[:, 3] .>= 0
-    positions_alive = positions_updated[mask_alive, :]
-    velocities_alive = velocities_updated[mask_alive, :]
     return positions_alive, velocities_alive
 end
 
