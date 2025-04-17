@@ -1,5 +1,5 @@
 using Statistics
-using StatsBase
+using StatsBase: fit, Histogram, Weights  # Importamos explícitamente fit de StatsBase
 
 # --- Funciones Auxiliares (Sin Cambios Mayores) ---
 function calculate_air_density_n(pressure, temperature)

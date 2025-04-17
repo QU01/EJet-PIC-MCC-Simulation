@@ -1,4 +1,4 @@
-using Plots
+using Plots, LinearAlgebra
 
 # --- Función para Graficar Temperatura vs Tiempo ---
 function plot_temperature_vs_time(time_points, avg_temps_history_julia, target_temperature)
@@ -41,4 +41,28 @@ function heatmap_temperature_slice(x_grid, y_grid, final_temperature_grid, z_sli
                  aspect_ratio=:auto, color=:magma,
                  colorbar_title="Temperatura (K)")
     return p3
+end
+
+function plot_efficiency_vs_lifetime(results_df)
+    p = scatter(results_df.AvgLifetime .* 1e9, results_df.FinalEfficiency,
+                xlabel="Tiempo Promedio de Vida del Electrón (ns)",
+                ylabel="Eficiencia Final (%)",
+                title="Eficiencia vs Tiempo de Vida de Electrones",
+                legend=false,
+                marker=(:circle, 6),
+                color=:purple,
+                grid=true)
+    
+    if length(results_df.AvgLifetime) > 1
+        # Regresión lineal manual
+        x = results_df.AvgLifetime .* 1e9
+        y = results_df.FinalEfficiency
+        A = [x ones(length(x))]
+        coeffs = A \ y  # Solución de mínimos cuadrados
+        plot!(p, x, A * coeffs,
+              line=(:dot, 3, :red),
+              label="Tendencia Lineal")
+    end
+    
+    return p
 end
