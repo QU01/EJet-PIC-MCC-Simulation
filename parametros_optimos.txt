@@ -1,9 +1,9 @@
 --- Resultados de Búsqueda de Parámetros ---
-Fecha y Hora: 2025-04-17T12:47:33.199
+Fecha y Hora: 2025-06-03T16:36:00.690
 
 --- Mejores Parámetros ---
 Energía de Electrón: 25.0 eV
 Presión: 3.0 MPa
 Campo Magnético: 0.5 T
-Potencial Atractivo: 25.0 V
-Eficiencia Promedio Óptima: 66.56 %
+Potencial Atractivo: 0.0 V
+Eficiencia Promedio Óptima: 31.62 %

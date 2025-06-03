@@ -66,3 +66,36 @@ function plot_efficiency_vs_lifetime(results_df)
     
     return p
 end
+
+function plot_charge_density_slice(x_grid, y_grid, charge_density_grid, z_slice_index)
+    p = heatmap(x_grid*1000, y_grid*1000, charge_density_grid[:, :, z_slice_index]',
+                xlabel="x (mm)", ylabel="y (mm)",
+                title="Densidad de Carga (Slice en z)",
+                aspect_ratio=:auto, color=:RdBu,
+                colorbar_title="Densidad de Carga (C/m³)")
+    return p
+end
+
+function plot_potential_slice(x_grid, y_grid, potential_grid, z_slice_index)
+    p = heatmap(x_grid*1000, y_grid*1000, potential_grid[:, :, z_slice_index]',
+                xlabel="x (mm)", ylabel="y (mm)",
+                title="Potencial Eléctrico (Slice en z)",
+                aspect_ratio=:auto, color=:viridis,
+                colorbar_title="Potencial (V)")
+    return p
+end
+
+function plot_electric_field_vectors(x_grid, y_grid, Ex, Ey, z_slice_index; step=3)
+    # Crear una visualización vectorial del campo eléctrico
+    x_plot = x_grid[1:step:end] * 1000  # mm
+    y_plot = y_grid[1:step:end] * 1000  # mm
+    
+    Ex_slice = Ex[1:step:end, 1:step:end, z_slice_index]'
+    Ey_slice = Ey[1:step:end, 1:step:end, z_slice_index]'
+    
+    p = quiver(x_plot, y_plot, quiver=(Ex_slice, Ey_slice),
+              xlabel="x (mm)", ylabel="y (mm)",
+              title="Vectores de Campo Eléctrico (Slice en z)",
+              aspect_ratio=:auto)
+    return p
+end

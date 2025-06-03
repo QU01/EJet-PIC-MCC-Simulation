@@ -1,12 +1,12 @@
 --- Reporte de Simulación PIC-MCC ---
-Fecha y Hora: 2025-03-25T14:23:08.696
+Fecha y Hora: 2025-06-03T16:49:15.344
 
 --- Parámetros de Simulación ---
 Temperatura Inicial: 800.0 K
-Presión Inicial: 4.0 MPa
-Densidad Inicial del Aire: 3.62148525801996e26 m^-3
-Energía Inicial de los Electrones: 200 eV
-Campo Magnético Axial (Bz): 4 T
+Presión Inicial: 3.0 MPa
+Densidad Inicial del Aire: 2.71611394351497e26 m^-3
+Energía Inicial de los Electrones: 25.0 eV
+Campo Magnético Axial (Bz): 0.5 T
 Paso de Tiempo (dt): 5.0e-13 s
 Tiempo de Simulación por paso: 5.0e-13 s
 Electrones Simulados por paso: 100
@@ -14,19 +14,19 @@ Temperatura Objetivo: 2200.0 K
 Máximo número de pasos: 1000
 
 --- Resultados ---
-Temperatura Final Promedio: 1808.327128605248 K
+Temperatura Final Promedio: 1042.5532004460918 K
 Alcanzó Temperatura Objetivo: false
 Número de Pasos Simulados: 1000
 Tiempo Total de Simulación: 5.0e-10 s
-Aumento Total de Energía Interna del Aire: 7562.453464539363 J
-Energía Total Introducida por Electrones: 16021.800000000323 J
-Eficiencia de la Simulación: 47.201022759860706 %
-Eficiencia Promedio por Paso: 47.201022759860706 %
+Aumento Total de Energía Interna del Aire: 1364.3617525092668 J
+Energía Total Introducida por Electrones: 2002.7250000000404 J
+Eficiencia de la Simulación: 68.125266949245 %
+Eficiencia Promedio por Paso: 68.125266949245 %
 
 --- Plots ---
 Temperatura Promedio vs Tiempo: temperature_vs_time.png
 Eficiencia Promedio vs Tiempo: efficiency_vs_time.png
 Densidad de Electrones al Final (Slice): density_heatmap.png
 Temperatura del Aire al Final (Slice): temperature_heatmap.png
-Tiempo Promedio de Vida de Electrones: 0.08527097843140113 ns
-Conductividad del Plasma Estimada: 1.4926308505955937e-20 S/m
+Tiempo Promedio de Vida de Electrones: 0.09464250256030933 ns
+Conductividad del Plasma Estimada: 2.8089056078523727e-13 S/m

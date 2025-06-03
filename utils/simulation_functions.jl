@@ -5,8 +5,9 @@ using DataFrames
 # --- Función Principal de Simulación (modificada para calcular eficiencia por paso) ---
 function run_pic_simulation(initial_positions, initial_velocities, initial_temperature_grid,
     initial_air_density_n, air_composition, dt, simulated_electrons_per_step,
-    magnetic_field, electric_field, electron_charge, electron_mass, 
-    initial_electron_velocity; verbose=true, max_steps_override=nothing)
+    magnetic_field, electric_field, electron_charge, electron_mass,
+    initial_electron_velocity, x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval;
+    verbose=true, max_steps_override=nothing)
 
     # Acceso a variables globales (asegúrate que estén definidas)
     global target_temperature, max_steps, k_b, cell_volume, TOTAL_CELLS
@@ -24,6 +25,18 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
     if !is_stable && verbose
         println("Continuando con timestep potencialmente inestable...")
     end
+
+    # --- Inicializar campo eléctrico ---
+    # Calcular tamaños de celda
+    x_cell_size = x_grid[2] - x_grid[1]
+    y_cell_size = y_grid[2] - y_grid[1]
+    z_cell_size = z_grid[2] - z_grid[1]
+    
+    # Inicializar densidad de carga y campo eléctrico
+    charge_density_grid = zeros(length(x_grid)-1, length(y_grid)-1, length(z_grid)-1)
+    potential_grid = solve_poisson_equation(charge_density_grid, x_cell_size, y_cell_size, z_cell_size, anode_voltage)
+    Ex, Ey, Ez = calculate_electric_field_from_potential(potential_grid, x_cell_size, y_cell_size, z_cell_size)
+    electric_field_grid = ElectricFieldGrid(Ex, Ey, Ez, potential_grid)
 
     # Historiales
     temperatures_history = [copy(initial_temperature_grid)]
@@ -65,6 +78,21 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
     initial_internal_energy = (3/2) * k_b * initial_temperature * initial_air_density_n * cell_volume * TOTAL_CELLS
     previous_internal_energy = initial_internal_energy # Energía interna al inicio del paso anterior
 
+    electric_field_history = []
+    potential_history = []
+    
+    # Campo eléctrico inicial (sin electrones)
+    initial_charge_density = zeros(num_x_cells, num_y_cells, num_z_cells)
+    initial_potential = solve_poisson_equation(initial_charge_density, 
+                                             x_cell_size, y_cell_size, z_cell_size,
+                                             anode_voltage)
+    Ex, Ey, Ez = calculate_electric_field_from_potential(initial_potential,
+                                                        x_cell_size, y_cell_size, z_cell_size)
+    current_electric_field = ElectricFieldGrid(Ex, Ey, Ez, initial_potential)
+    
+    push!(electric_field_history, current_electric_field)
+    push!(potential_history, initial_potential)
+
     # --- Bucle Principal ---
     while avg_temps_history[end] < target_temperature && step < local_max_steps
         step += 1
@@ -99,22 +127,32 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
         current_avg_temp = Statistics.mean(temperature_grid)
         internal_energy_start_step = (3/2) * k_b * current_avg_temp * initial_air_density_n * cell_volume * TOTAL_CELLS
 
-        # 2. Mover Electrones (Fuerza de Lorentz: E + v x B)
-        # !!! MODIFICADO: Se pasa electric_field a move_electrons !!!
-        positions, velocities = move_electrons(
-            positions,
-            velocities,
-            dt,
-            magnetic_field,   # Campo B global
-            electric_field,   # Campo E global (nuevo)
-            electron_charge,
-            electron_mass
+        # 2. Mover Electrones (Fuerza de Lorentz: E + v x B) con campo eléctrico interpolado
+        positions, velocities = move_electrons_with_electric_field(
+            positions, velocities, dt,
+            magnetic_field, electric_field_grid,
+            x_grid, y_grid, z_grid,
+            electron_charge, electron_mass
         )
 
         # 3. Aplicar Condiciones de Frontera y Registrar Pérdidas
         prev_count = size(positions, 1)
         positions, velocities = apply_rectangular_boundary_conditions(positions, velocities, chamber_width, chamber_length, chamber_height)
         current_count = size(positions, 1)
+
+        # 3.5: Calcular densidad de carga y actualizar campo eléctrico (si es tiempo)
+        # Calcular densidad de carga a partir de las posiciones de las partículas
+        charge_density_grid = calculate_charge_density(positions, particle_weight, x_grid, y_grid, z_grid, cell_volume)
+        
+        # Actualizar el campo eléctrico cada 'electric_field_update_interval' pasos
+        if step % electric_field_update_interval == 0
+            potential_grid = solve_poisson_equation(charge_density_grid, x_cell_size, y_cell_size, z_cell_size, anode_voltage)
+            Ex, Ey, Ez = calculate_electric_field_from_potential(potential_grid, x_cell_size, y_cell_size, z_cell_size)
+            electric_field_grid = ElectricFieldGrid(Ex, Ey, Ez, potential_grid)
+            if verbose
+                println("  Campo eléctrico actualizado en el paso $step")
+            end
+        end
 
         if current_count < prev_count
             num_lost = prev_count - current_count
@@ -293,9 +331,11 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
 
     # --- Retorno ---
     # Asegúrate que el orden coincida con cómo se usa en el script principal
+    # Devolver también los grids finales de densidad de carga, campo eléctrico y potencial
     return temperatures_history, avg_temps_history, density_history,
            energy_deposition_history, elastic_energy_deposition_history, final_step, reached_target_temp,
-           accumulated_input_energy, efficiency_history, avg_efficiency, detailed_data, avg_electron_lifetime, conductivity_history
+           accumulated_input_energy, efficiency_history, avg_efficiency, detailed_data, avg_electron_lifetime, conductivity_history,
+           charge_density_grid, electric_field_grid, potential_grid
 end
 
 # Modificar estimate_efficiency para retornar avg_efficiency_julia como eficiencia principal
@@ -374,7 +414,7 @@ function calculate_plasma_conductivity(electron_density, temperature_e, pressure
     return σ
 end
 
-function parameter_search() # <-- Removido el argumento de potencial fijo
+function parameter_search(x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval) # <-- Added grid and field parameters
 
     # Acceso a variables globales (asegúrate que estén definidas)
     global initial_temperature, chamber_width, chamber_length, chamber_height
@@ -400,7 +440,7 @@ function parameter_search() # <-- Removido el argumento de potencial fijo
     println("  Potencial Atractivo (V): $attractive_potentials") # Mostrar nuevo rango
 
     # Número reducido de pasos para la búsqueda rápida
-    search_max_steps = 250 # Ajusta según el tiempo disponible
+    search_max_steps = 10 # Ajusta según el tiempo disponible
 
     # Inicializar DataFrame para almacenar resultados
     # !!! NUEVO: Añadida columna AttractivePotential !!!
@@ -449,20 +489,21 @@ function parameter_search() # <-- Removido el argumento de potencial fijo
                     # --- Ejecutar Simulación ---
                     # La llamada a run_pic_simulation ya acepta electric_field
                     (temperatures_history, avg_temps_history, density_history,
-                    energy_deposition_history, elastic_energy_deposition_history, final_step,
-                    reached_target, accumulated_input_energy, efficiency_history,
-                    avg_efficiency, detailed_data, avg_lifetime,
-                    conductivity_history) = run_pic_simulation(
-                        initial_positions, initial_velocities, initial_temperature_grid,
-                        initial_air_density_n, air_composition, dt, simulated_electrons_per_step,
-                        magnetic_field,   # Campo B (variable)
-                        electric_field,   # Campo E (variable ahora)
-                        electron_charge,
-                        electron_mass,
-                        initial_velocity,
-                        verbose=false, # Modo silencioso
-                        max_steps_override=search_max_steps
-                    )
+                     energy_deposition_history, elastic_energy_deposition_history, final_step,
+                     reached_target, accumulated_input_energy, efficiency_history,
+                     avg_efficiency, detailed_data, avg_lifetime,
+                     conductivity_history) = run_pic_simulation(
+                       initial_positions, initial_velocities, initial_temperature_grid,
+                       initial_air_density_n, air_composition, dt, simulated_electrons_per_step,
+                       magnetic_field,   # Campo B (variable)
+                       electric_field,   # Campo E (variable ahora)
+                       electron_charge,
+                       electron_mass,
+                       initial_velocity,
+                       x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval,
+                       verbose=false, # Modo silencioso
+                       max_steps_override=search_max_steps
+                   )
 
                     # --- Calcular Métricas Adicionales ---
                     final_temperature = avg_temps_history[end]

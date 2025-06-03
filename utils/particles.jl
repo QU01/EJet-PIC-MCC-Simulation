@@ -152,3 +152,36 @@ function limit_electron_energy!(velocities, min_eV=0.1, max_eV=1000.0)
     end
     return velocities
 end
+
+function move_electrons_with_electric_field(positions, velocities, dt, 
+    magnetic_field, electric_field_grid,
+    x_grid, y_grid, z_grid,
+    electron_charge, electron_mass)
+    new_velocities = copy(velocities)
+    new_positions = copy(positions)
+
+    # Para cada electrón
+    for i in 1:size(positions, 1)
+        pos = positions[i, :]
+        vel = velocities[i, :]
+
+        # Interpolar campo eléctrico en la posición del electrón
+        E_local = interpolate_electric_field(pos, 
+            electric_field_grid.Ex,
+            electric_field_grid.Ey,
+            electric_field_grid.Ez,
+            x_grid, y_grid, z_grid)
+
+        # Calcular fuerza total
+        F_total = total_force_on_electron(vel, E_local, magnetic_field, electron_charge)
+
+        # Actualizar velocidad (método de Verlet)
+        acceleration = F_total / electron_mass
+        new_velocities[i, :] = vel + acceleration * dt
+
+        # Actualizar posición
+        new_positions[i, :] = pos + vel * dt + 0.5 * acceleration * dt^2
+    end
+
+    return new_positions, new_velocities
+end

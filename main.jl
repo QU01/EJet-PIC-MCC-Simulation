@@ -3,10 +3,11 @@
 # Incluir todos los módulos necesarios
 include("utils/constants.jl")
 include("utils/cross_sections.jl")
-include("utils/particles.jl")      # Asegúrate que move_electrons aquí está actualizado
+include("utils/particles.jl")
 include("utils/collisions.jl")
 include("utils/grid_functions.jl")
-include("utils/simulation_functions.jl") # Asegúrate que run_pic_simulation, etc. aquí están actualizados
+include("utils/electric_fields.jl")
+include("utils/simulation_functions.jl")
 include("utils/plotting_functions.jl")
 include("utils/reporting_functions.jl")
 
@@ -35,6 +36,9 @@ x_cell_size = x_grid[2] - x_grid[1]
 y_cell_size = y_grid[2] - y_grid[1]
 z_cell_size = z_grid[2] - z_grid[1]
 cell_volume = x_cell_size * y_cell_size * z_cell_size
+
+anode_voltage = 1000.0  # Voltaje del ánodo en Voltios
+electric_field_update_interval = 10  # Actualizar campo eléctrico cada N pasos
 
 # --- Parámetros de Simulación PIC ---
 initial_temperature = 800.0     # K
@@ -66,7 +70,7 @@ isdir("simulation_data") || mkdir("simulation_data") # Para CSVs
 # --- Ejecutar Búsqueda de Parámetros ---
 println("\n--- Iniciando Búsqueda de Parámetros Óptimos ---")
 
-results_df, best_params, best_efficiency = parameter_search()
+results_df, best_params, best_efficiency = parameter_search(x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval)
 
 # --- Mostrar Mejores Parámetros ---
 println("\n--- Mejores Parámetros Encontrados ---")
@@ -149,15 +153,17 @@ println("Campo Eléctrico Ez: $(round(electric_field[3], digits=2)) V/m")
 # Asegúrate que la función run_pic_simulation retorna la tupla en este orden
 (temperatures_history_julia, avg_temps_history_julia, density_history_julia,
  energy_deposition_history_julia, elastic_energy_deposition_history_julia, final_step, reached_target_temp,
- accumulated_input_energy, efficiency_history_julia, avg_efficiency_julia, detailed_data, avg_electron_lifetime, conductivity_history
+ accumulated_input_energy, efficiency_history_julia, avg_efficiency_julia, detailed_data, avg_electron_lifetime, conductivity_history,
+ final_charge_density_grid, final_electric_field_grid, final_potential_grid
  ) = run_pic_simulation(
-    initial_positions, initial_velocities, initial_temperature_grid,
-    initial_air_density_n_value, air_composition, dt, simulated_electrons_per_step,
-    magnetic_field,       # Campo B óptimo
-    electric_field,       # Campo E óptimo
-    electron_charge, electron_mass, initial_electron_velocity,
-    verbose=true,
-    max_steps_override=max_steps
+   initial_positions, initial_velocities, initial_temperature_grid,
+   initial_air_density_n_value, air_composition, dt, simulated_electrons_per_step,
+   magnetic_field,       # Campo B óptimo
+   electric_field,       # Campo E óptimo
+   electron_charge, electron_mass, initial_electron_velocity,
+   x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval,
+   verbose=true,
+   max_steps_override=max_steps
 )
 
 # --- Calcular Métricas Finales ---
@@ -240,6 +246,25 @@ if final_step > 0
         p3 = heatmap_temperature_slice(x_grid, y_grid, final_temperature_grid, z_slice_index)
         savefig(p3, "plots/temperature_heatmap.png")
         display(p3)
+        
+        # --- Nuevos plots para campos eléctricos ---
+        # Plot de Densidad de Carga
+        p6 = plot_charge_density_slice(x_grid, y_grid, final_charge_density_grid, z_slice_index)
+        savefig(p6, "plots/charge_density_slice.png")
+        display(p6)
+        
+        # Plot de Potencial Eléctrico
+        p7 = plot_potential_slice(x_grid, y_grid, final_potential_grid, z_slice_index)
+        savefig(p7, "plots/potential_slice.png")
+        display(p7)
+        
+        # Plot de Vectores de Campo Eléctrico
+        p8 = plot_electric_field_vectors(x_grid, y_grid,
+                                        final_electric_field_grid.Ex,
+                                        final_electric_field_grid.Ey,
+                                        z_slice_index)
+        savefig(p8, "plots/electric_field_vectors.png")
+        display(p8)
     else
         println("No se pudieron generar heatmaps porque los grids finales están vacíos.")
     end
