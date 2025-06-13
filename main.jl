@@ -19,6 +19,27 @@ println("Plots.jl backend set to: ", backend_name())
 # --- Include Simulation Modules ---
 # The order is important to ensure dependencies are met.
 
+# ===========================================================================
+# main.jl - Main Orchestrator for the PIC-MCC Simulation
+# ===========================================================================
+
+# --- External Dependencies ---
+using Plots
+using DataFrames
+using CSV
+using Dates
+using Statistics
+using CUDA
+using LinearAlgebra
+
+# --- Set Up Plotting Backend ---
+# Use a headless backend to avoid errors in server/container environments
+#pyplot()
+println("Plots.jl backend set to: ", backend_name())
+
+# --- Include Simulation Modules ---
+# The order is important to ensure dependencies are met.
+
 include("utils/constants.jl")
 include("utils/cross_sections.jl")
 include("utils/particles.jl")
@@ -29,6 +50,35 @@ include("utils/simulation_functions.jl")
 include("utils/plotting_functions.jl")
 include("utils/reporting_functions.jl")
 
+
+# --- Global Simulation Flag ---
+const USE_GPU = CUDA.functional()
+if USE_GPU
+    println("✅ NVIDIA GPU detected. Simulation will run on the GPU.")
+else
+    println("⚠️ No functional NVIDIA GPU detected. Simulation will run on the CPU.")
+end
+
+# ===========================================================================
+# Simulation Setup
+# ===========================================================================
+
+function setup_simulation_environment()
+    println("\n--- Setting up Simulation Environment ---")
+
+    # --- Chamber and Grid Parameters ---
+    chamber_dims = (width=0.1, length=0.1, height=0.001) # m
+    grid_cells = (nx=6, ny=3, nz=50)
+    total_cells = grid_cells.nx * grid_cells.ny * grid_cells.nz
+
+    x_grid = LinRange(0, chamber_dims.width, grid_cells.nx + 1)
+    y_grid = LinRange(0, chamber_dims.length, grid_cells.ny + 1)
+    z_grid = LinRange(0, chamber_dims.height, grid_cells.nz + 1)
+    
+    x_cell_size = x_grid[2] - x_grid[1]
+    y_cell_size = y_grid[2] - y_grid[1]
+    z_cell_size = z_grid[2] - z_grid[1]
+    cell_volume = x_cell_size * y_cell_size * z_cell_size
 
 # --- Global Simulation Flag ---
 const USE_GPU = CUDA.functional()
