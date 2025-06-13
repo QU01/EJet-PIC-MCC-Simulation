@@ -1,187 +1,276 @@
-# --- particles.jl ---
+# ---------------------------------------------------------------------------
+# ARCHIVO: particles.jl (Inicialización y movimiento de partículas)
+# ---------------------------------------------------------------------------
+
 using LinearAlgebra
 using Random
 
-# --- Funciones Auxiliares (Asumiendo que están aquí o accesibles) ---
-function electron_velocity_from_energy(electron_energy_eV)
-    energy_joules = electron_energy_eV * 1.60218e-19
-    # Asegurar que la energía no sea negativa antes de sqrt
-    if energy_joules < 0.0
-        energy_joules = 0.0
-    end
-    return sqrt(2 * energy_joules / electron_mass) # electron_mass debe ser global o constante
+# GPU: Importar CUDA y la bandera de uso
+using CUDA
+# Asumimos que USE_GPU y constantes como ELECTRON_MASS, ELECTRON_CHARGE están definidas.
+
+# ===========================================================================
+# KERNELS Y FUNCIONES DE DISPOSITIVO (GPU)
+# ===========================================================================
+
+# GPU: Versión "device" de la interpolación del campo eléctrico.
+# Cada hilo (partícula) la llama para encontrar el campo en su posición.
+@inline function device_interpolate_field(px, py, pz, Ex, Ey, Ez, x_grid, y_grid, z_grid)
+    # Asume malla uniforme para un cálculo de índice rápido
+    dx, dy, dz = x_grid[2] - x_grid[1], y_grid[2] - y_grid[1], z_grid[2] - z_grid[1]
+    
+    # Nearest Grid Point (NGP) para simplicidad.
+    ix = clamp(floor(Int, px / dx) + 1, 1, size(Ex, 1))
+    iy = clamp(floor(Int, py / dy) + 1, 1, size(Ex, 2))
+    iz = clamp(floor(Int, pz / dz) + 1, 1, size(Ex, 3))
+    
+    return Ex[ix, iy, iz], Ey[ix, iy, iz], Ez[ix, iy, iz]
 end
 
-function electron_energy_from_velocity(velocity_magnitude)
-    return 0.5 * electron_mass * (velocity_magnitude ^ 2) # electron_mass debe ser global o constante
-end
+# GPU: Kernel para el algoritmo de Boris.
+function boris_pusher_kernel!(positions, velocities, dt, Bx, By, Bz,
+                              Ex, Ey, Ez, # <-- Desempaquetado
+                              x_grid, y_grid, z_grid)
+    i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    if i > size(positions, 1); return; end
 
-function lorentz_force(velocity, magnetic_field, charge)
-    v_cross_B = cross(velocity, magnetic_field)
-    return charge * v_cross_B
-end
+    # Cargar posición y velocidad de la partícula
+    px, py, pz = positions[i, 1], positions[i, 2], positions[i, 3]
+    vx, vy, vz = velocities[i, 1], velocities[i, 2], velocities[i, 3]
 
-# --- Inicialización de Electrones (Sin Cambios, pero necesaria para el contexto) ---
-function initialize_electrons(num_electrons, chamber_width, chamber_length, initial_electron_velocity)
-    rng = MersenneTwister(0) # Puedes usar un RNG global si prefieres
-    x_positions = rand(rng, num_electrons) .* chamber_width
-    y_positions = rand(rng, num_electrons) .* chamber_length
-    z_positions = zeros(num_electrons) # Inyectados en z=0
-
-    vx = zeros(num_electrons)
-    vy = zeros(num_electrons)
-    vz = fill(initial_electron_velocity, num_electrons) # Velocidad inicial en z
-
-    positions = hcat(x_positions, y_positions, z_positions)
-    velocities = hcat(vx, vy, vz)
-    return positions, velocities
-end
+    # --- CORRECCIÓN 2: Usar los arrays de campo E directamente ---
+    # La llamada a device_interpolate_field ahora usa los arrays directamente.
+    Ex_local, Ey_local, Ez_local = device_interpolate_field(
+        px, py, pz, Ex, Ey, Ez, # <-- Pasa los arrays
+        x_grid, y_grid, z_grid
+    )
 
 
-# --- Movimiento de Electrones con Fuerza Eléctrica y Magnética (Algoritmo de Boris) ---
-# !!! VERSIÓN COMPLETA MODIFICADA para incluir electric_field y usar Algoritmo de Boris !!!
-function move_electrons(positions, velocities, dt, magnetic_field, electric_field, electron_charge, electron_mass)
-    num_particles = size(positions, 1)
-    if num_particles == 0
-        return positions, velocities # Devuelve arrays vacíos si no hay partículas
-    end
-
-    new_velocities = copy(velocities)
-    new_positions = copy(positions) # Inicializamos new_positions
-
-    # Precalcular términos constantes que no dependen de la partícula
-    q_over_m = electron_charge / electron_mass
+    q_over_m = ELECTRON_CHARGE / ELECTRON_MASS
     dt_half = dt / 2.0
-    E_accel_half_dt = q_over_m * electric_field * dt_half # Vector de aceleración E para medio paso
 
-    # --- Algoritmo de Boris ---
-    for i in 1:num_particles
-        v_n = velocities[i, :] # Velocidad al inicio del paso (t)
+    vx_minus = vx + q_over_m * Ex_local * dt_half
+    vy_minus = vy + q_over_m * Ey_local * dt_half
+    vz_minus = vz + q_over_m * Ez_local * dt_half
 
-        # 1. Primera mitad de la aceleración eléctrica (v_n -> v_minus en t+dt/2)
-        v_minus = v_n + E_accel_half_dt
+    tx, ty, tz = q_over_m * Bx * dt_half, q_over_m * By * dt_half, q_over_m * Bz * dt_half
 
-        # 2. Rotación magnética (v_minus -> v_plus en t+dt/2)
-        # Vector t = (q/m) * B * dt/2
-        t = q_over_m * magnetic_field * dt_half
-        t_mag_sq = dot(t, t) # |t|^2
+    t_mag_sq = tx*tx + ty*ty + tz*tz
 
-        # Vector s = 2*t / (1 + |t|^2) (maneja el caso |t|=0 implícitamente)
-        s = 2.0 * t / (1.0 + t_mag_sq)
+    s_factor = 2.0 / (1.0 + t_mag_sq)
 
-        # v' = v⁻ + v⁻ x t
-        v_prime = v_minus + cross(v_minus, t)
+    sx, sy, sz = tx * s_factor, ty * s_factor, tz * s_factor
 
-        # v⁺ = v⁻ + v' x s
-        v_plus = v_minus + cross(v_prime, s)
+    v_prime_x = vx_minus + (vy_minus * tz - vz_minus * ty)
+    v_prime_y = vy_minus + (vz_minus * tx - vx_minus * tz)
+    v_prime_z = vz_minus + (vx_minus * ty - vy_minus * tx)
 
-        # 3. Segunda mitad de la aceleración eléctrica (v_plus -> v_n+1 en t+dt)
-        v_n_plus_1 = v_plus + E_accel_half_dt # Velocidad al final del paso
-        new_velocities[i, :] = v_n_plus_1
+    vx_plus = vx_minus + (v_prime_y * sz - v_prime_z * sy)
+    vy_plus = vy_minus + (v_prime_z * sx - v_prime_x * sz)
+    vz_plus = vz_minus + (v_prime_x * sy - v_prime_y * sx)
 
-        # 4. Actualización de la posición
-        # Usamos el método promedio (promedio de velocidad inicial y final del paso)
-        # Alternativa Leapfrog estricta: new_positions[i, :] = positions[i, :] + v_n_plus_1 * dt
-        new_positions[i, :] = positions[i, :] + 0.5 * (v_n + v_n_plus_1) * dt
+    vx_new = vx_plus + q_over_m * Ex_local * dt_half
+    vy_new = vy_plus + q_over_m * Ey_local * dt_half
+    vz_new = vz_plus + q_over_m * Ez_local * dt_half
+
+    velocities[i, 1], velocities[i, 2], velocities[i, 3] = vx_new, vy_new, vz_new
+
+    positions[i, 1] += vx_new * dt
+    positions[i, 2] += vy_new * dt
+    positions[i, 3] += vz_new * dt
+    
+    return
+end
+
+# GPU: Kernel para limitar la energía de las partículas.
+function limit_energy_kernel!(velocities, min_v_sq, max_v_sq)
+    i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    if i > size(velocities, 1); return; end
+
+    vx, vy, vz = velocities[i, 1], velocities[i, 2], velocities[i, 3]
+    v_sq = vx*vx + vy*vy + vz*vz
+
+    if v_sq > max_v_sq
+        factor = CUDA.sqrt(max_v_sq / v_sq)
+        velocities[i, 1] *= factor
+        velocities[i, 2] *= factor
+        velocities[i, 3] *= factor
+    elseif v_sq < min_v_sq && v_sq > 1e-20
+        factor = CUDA.sqrt(min_v_sq / v_sq)
+        velocities[i, 1] *= factor
+        velocities[i, 2] *= factor
+        velocities[i, 3] *= factor
     end
-
-    # NOTA: La conservación de energía ya no se cumple exactamente cuando E != 0,
-    # porque el campo eléctrico realiza trabajo sobre las partículas.
-    # La verificación de energía sólo tiene sentido si E = 0.
-
-    return new_positions, new_velocities
+    
+    return
 end
 
 
-# --- Verificación de Timestep (Sin Cambios, pero relevante) ---
-function check_timestep_validity(dt, magnetic_field_strength, electron_mass, electron_charge)
-    if magnetic_field_strength > 1e-10 # Evita división por cero si B=0
-        cyclotron_period = 2π * electron_mass / (abs(electron_charge) * magnetic_field_strength)
-        dt_max_recommended = 0.1 * cyclotron_period # Recomendación común (factor 0.1-0.2)
+# ===========================================================================
+# FUNCIONES DE ALTO NIVEL (DESPACHADORAS)
+# ===========================================================================
 
-        if dt > dt_max_recommended
-            println("⚠️ ADVERTENCIA DE ESTABILIDAD:")
-            println("  Timestep actual (dt):         $(dt) s")
-            println("  Período de ciclotrón (T_c):   $(cyclotron_period) s")
-            println("  Timestep máx. recomendado:  ~$(round(dt_max_recommended, sigdigits=3)) s (e.g., 0.1 * T_c)")
-            println("  Ratio dt / T_c:             $(round(dt/cyclotron_period, sigdigits=3))")
-            println("  La simulación puede ser inestable o imprecisa para el movimiento giroscópico.")
-            println("  Considere reducir dt.")
-            return false
-        end
+function move_electrons(positions, velocities, dt, magnetic_field, E_grid,
+                        x_grid, y_grid, z_grid)
+    num_particles = size(positions, 1)
+    if num_particles == 0; return positions, velocities; end
+
+    if USE_GPU && isa(positions, CuArray)
+        # Versión GPU
+        threads = 256
+        blocks = cld(num_particles, threads)
+        
+        x_grid_d, y_grid_d, z_grid_d = CuArray(x_grid), CuArray(y_grid), CuArray(z_grid)
+
+        # --- CORRECCIÓN 4: Desempaquetar la struct ANTES de llamar a @cuda ---
+        @cuda threads=threads blocks=blocks boris_pusher_kernel!(
+            positions, velocities, dt, magnetic_field[1], magnetic_field[2], magnetic_field[3],
+            E_grid.Ex, E_grid.Ey, E_grid.Ez, # <-- Pasa los componentes, no la struct
+            x_grid_d, y_grid_d, z_grid_d
+        )
+        CUDA.synchronize()
+        return positions, velocities
+    else
+        # Versión CPU (no necesita cambios, ya que puede manejar la struct)
+        return move_electrons_cpu(positions, velocities, dt, magnetic_field, E_grid,
+                                  x_grid, y_grid, z_grid)
     end
-    # Podrías añadir aquí una condición para el campo eléctrico si fuera necesario
-    # Por ejemplo, basado en la frecuencia de plasma o el tiempo de cruce de celda.
-    return true
 end
 
-# --- Condiciones de Frontera (Sin Cambios) ---
-function apply_rectangular_boundary_conditions(positions, velocities, chamber_width, chamber_length, chamber_height)
-    x = positions[:, 1]
-    y = positions[:, 2]
-    z = positions[:, 3]
-
-    # Crear máscara para electrones dentro de los límites de la cámara
-    mask_alive = (x .>= 0.0) .& (x .<= chamber_width) .&
-                 (y .>= 0.0) .& (y .<= chamber_length) .&
-                 (z .>= 0.0) .& (z .<= chamber_height)
-
-    # Filtrar electrones que permanecen dentro
-    positions_alive = positions[mask_alive, :]
-    velocities_alive = velocities[mask_alive, :]
-
-    return positions_alive, velocities_alive
+function apply_rectangular_boundary_conditions(positions, velocities, chamber_dims)
+    # Esta función ahora devuelve (posiciones_filtradas, velocidades_filtradas, máscara_de_conservados)
+    
+    # La lógica para crear la máscara es la misma para CPU y GPU
+    mask = (positions[:, 1] .>= 0.0) .& (positions[:, 1] .<= chamber_dims.width) .&
+           (positions[:, 2] .>= 0.0) .& (positions[:, 2] .<= chamber_dims.length) .&
+           (positions[:, 3] .>= 0.0) .& (positions[:, 3] .<= chamber_dims.height)
+    
+    # Filtra los arrays usando la máscara
+    filtered_positions = positions[mask, :]
+    filtered_velocities = velocities[mask, :]
+    
+    # Devuelve los arrays filtrados Y la máscara
+    return filtered_positions, filtered_velocities, mask
 end
 
-# Añadir después de inicializar nuevos electrones
-# Al principio de cada paso de simulación
+function calculate_inside_chamber_mask(positions, chamber_dims)
+    if isa(positions, CuArray)
+        # Versión GPU con comprobación de límites
+        return (positions[:, 1] .>= 0.0) .& 
+               (positions[:, 1] .<= Float32(chamber_dims.width)) .&
+               (positions[:, 2] .>= 0.0) .& 
+               (positions[:, 2] .<= Float32(chamber_dims.length)) .&
+               (positions[:, 3] .>= 0.0) .& 
+               (positions[:, 3] .<= Float32(chamber_dims.height))
+    else
+        # Versión CPU
+        return [
+            0 <= x <= chamber_dims.width &&
+            0 <= y <= chamber_dims.length &&
+            0 <= z <= chamber_dims.height
+            for (x, y, z) in eachrow(positions)
+        ]
+    end
+end
+
 function limit_electron_energy!(velocities, min_eV=0.1, max_eV=1000.0)
-    min_energy = min_eV * 1.60218e-19  # Convertir a Joules
-    max_energy = max_eV * 1.60218e-19
+    if isempty(velocities); return velocities; end
+    
+    min_energy_J = min_eV * abs(ELECTRON_CHARGE)
+    max_energy_J = max_eV * abs(ELECTRON_CHARGE)
+    min_v_sq = 2 * min_energy_J / ELECTRON_MASS
+    max_v_sq = 2 * max_energy_J / ELECTRON_MASS
 
-    min_velocity = sqrt(2 * min_energy / electron_mass)
-    max_velocity = sqrt(2 * max_energy / electron_mass)
-
-    for i in 1:size(velocities, 1)
-        v_mag = norm(velocities[i,:])
-        if v_mag > max_velocity
-            velocities[i,:] *= (max_velocity / v_mag)
-        elseif v_mag < min_velocity && v_mag > 0
-            velocities[i,:] *= (min_velocity / v_mag)
+    if USE_GPU && isa(velocities, CuArray)
+        # Versión GPU
+        threads = 256
+        blocks = cld(size(velocities, 1), threads)
+        @cuda threads=threads blocks=blocks limit_energy_kernel!(velocities, min_v_sq, max_v_sq)
+    else
+        # Versión CPU
+        for i in 1:size(velocities, 1)
+            v_sq = sum(velocities[i,:].^2)
+            if v_sq > max_v_sq
+                factor = sqrt(max_v_sq / v_sq)
+                velocities[i,:] .*= factor
+            elseif v_sq < min_v_sq && v_sq > 0
+                factor = sqrt(min_v_sq / v_sq)
+                velocities[i,:] .*= factor
+            end
         end
     end
     return velocities
 end
 
-function move_electrons_with_electric_field(positions, velocities, dt, 
-    magnetic_field, electric_field_grid,
-    x_grid, y_grid, z_grid,
-    electron_charge, electron_mass)
-    new_velocities = copy(velocities)
+
+# ===========================================================================
+# IMPLEMENTACIONES ORIGINALES PARA CPU Y FUNCIONES AUXILIARES
+# ===========================================================================
+
+function electron_velocity_from_energy(electron_energy_eV)
+    energy_joules = electron_energy_eV * abs(ELECTRON_CHARGE)
+    return sqrt(2 * max(0.0, energy_joules) / ELECTRON_MASS)
+end
+
+function lorentz_force(velocity, magnetic_field, charge)
+    return charge .* cross(velocity, magnetic_field)
+end
+
+function initialize_electrons(num_electrons, chamber_dims, initial_electron_velocity)
+    # La inicialización se hace en la CPU, los datos se mueven a la GPU después si es necesario.
+    rng = MersenneTwister(0)
+    x_pos = rand(rng, num_electrons) .* chamber_dims.width
+    y_pos = rand(rng, num_electrons) .* chamber_dims.length
+    z_pos = zeros(num_electrons)
+
+    vx = zeros(num_electrons)
+    vy = zeros(num_electrons)
+    vz = fill(initial_electron_velocity, num_electrons)
+
+    positions = hcat(x_pos, y_pos, z_pos)
+    velocities = hcat(vx, vy, vz)
+    return positions, velocities
+end
+
+function move_electrons_cpu(positions, velocities, dt, magnetic_field, E_grid,
+                            x_grid, y_grid, z_grid)
+    num_particles = size(positions, 1)
     new_positions = copy(positions)
+    new_velocities = copy(velocities)
 
-    # Para cada electrón
-    for i in 1:size(positions, 1)
-        pos = positions[i, :]
-        vel = velocities[i, :]
+    q_over_m = ELECTRON_CHARGE / ELECTRON_MASS
+    dt_half = dt / 2.0
+    
+    t = q_over_m * magnetic_field * dt_half
+    t_mag_sq = dot(t, t)
+    s = 2.0 * t / (1.0 + t_mag_sq)
 
-        # Interpolar campo eléctrico en la posición del electrón
-        E_local = interpolate_electric_field(pos, 
-            electric_field_grid.Ex,
-            electric_field_grid.Ey,
-            electric_field_grid.Ez,
-            x_grid, y_grid, z_grid)
-
-        # Calcular fuerza total
-        F_total = total_force_on_electron(vel, E_local, magnetic_field, electron_charge)
-
-        # Actualizar velocidad (método de Verlet)
-        acceleration = F_total / electron_mass
-        new_velocities[i, :] = vel + acceleration * dt
-
-        # Actualizar posición
-        new_positions[i, :] = pos + vel * dt + 0.5 * acceleration * dt^2
+    for i in 1:num_particles
+        # Interpolar campo E en la CPU
+        E_local = interpolate_electric_field(positions[i,:], E_grid, x_grid, y_grid, z_grid)
+        
+        # Algoritmo de Boris
+        v_n = velocities[i, :]
+        E_accel_half_dt = q_over_m * E_local * dt_half
+        
+        v_minus = v_n + E_accel_half_dt
+        v_prime = v_minus + cross(v_minus, t)
+        v_plus = v_minus + cross(v_prime, s)
+        v_n_plus_1 = v_plus + E_accel_half_dt
+        
+        new_velocities[i, :] = v_n_plus_1
+        new_positions[i, :] = positions[i, :] + v_n_plus_1 * dt
     end
-
     return new_positions, new_velocities
+end
+
+function check_timestep_validity(dt, magnetic_field_strength)
+    if magnetic_field_strength > 1e-10
+        cyclotron_period = 2π * ELECTRON_MASS / (abs(ELECTRON_CHARGE) * magnetic_field_strength)
+        if dt > 0.1 * cyclotron_period
+            @warn "Timestep $(dt)s puede ser demasiado grande para la frecuencia de ciclotrón. T_c ≈ $(cyclotron_period)s."
+            return false
+        end
+    end
+    return true
 end

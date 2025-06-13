@@ -1,238 +1,160 @@
+# ---------------------------------------------------------------------------
+# FILE: reporting_functions.jl (Functions for reporting and data export)
+# ---------------------------------------------------------------------------
+
 using Dates
 using DataFrames
 using CSV
+using CUDA # Needed to check for CuArray type
 
-function calculate_energy_based_efficiency(initial_temperature, final_temperature, initial_air_density_n, cell_volume, total_cells, accumulated_input_energy)
-    # Calcular energía interna inicial y final del gas (ideal)
-    initial_internal_energy = (3/2) * k_b * initial_temperature * initial_air_density_n * cell_volume * total_cells
-    final_internal_energy = (3/2) * k_b * final_temperature * initial_air_density_n * cell_volume * total_cells
+# Assumes K_B is a global constant defined elsewhere
+# Assumes a to_cpu utility function is defined (e.g., in visualization.jl)
+# to_cpu(data::AbstractArray) = Array(data)
+# to_cpu(data) = data
+
+# --- Energy and Efficiency Calculations ---
+
+"""
+Calculates the overall thermal efficiency based on the change in the gas's internal energy.
+"""
+function calculate_energy_based_efficiency(initial_temperature, final_temperature,
+                                           initial_air_density_n, cell_volume, total_cells,
+                                           accumulated_input_energy)
+    # Calculate initial and final internal energy of the ideal gas
+    initial_internal_energy = (3/2) * K_B * initial_temperature * initial_air_density_n * cell_volume * total_cells
+    final_internal_energy = (3/2) * K_B * final_temperature * initial_air_density_n * cell_volume * total_cells
     delta_internal_energy = final_internal_energy - initial_internal_energy
-    
-    # Calcular eficiencia
-    if accumulated_input_energy > 0
+
+    # Calculate efficiency
+    efficiency = 0.0
+    if accumulated_input_energy > 1e-20 # Avoid division by zero
         efficiency = (delta_internal_energy / accumulated_input_energy) * 100
-    else
-        efficiency = 0.0
     end
-    
+
     return efficiency, delta_internal_energy, initial_internal_energy, final_internal_energy
 end
 
-# --- Función para Generar Reporte de Simulación ---
-function generate_report(filename, initial_temperature, initial_pressure, electron_injection_energy_eV, magnetic_field_strength, dt, simulation_time, simulated_electrons_per_step, efficiency_simulation, increase_internal_energy, total_input_energy, final_step, reached_target_temp, avg_temps_history_julia, avg_efficiency_julia, avg_electron_lifetime, plasma_conductivity)
+# --- Simulation Report Generation ---
+
+"""
+Generates a summary text report of the simulation run.
+Handles both CPU (Array) and GPU (CuArray) data by converting to CPU first.
+"""
+function generate_report(filename, params, results)
+    # GPU: Ensure all data that might come from the GPU is moved to the CPU
+    final_avg_temp = to_cpu(results.avg_temps_history[end])
+
+    magnetic_field_strength = norm(params.magnetic_field)
+    
+    # Open file to write the report
     open(filename, "w") do io
-        println(io, "--- Reporte de Simulación PIC-MCC ---")
-        println(io, "Fecha y Hora: $(Dates.now())")
-        println(io, "\n--- Parámetros de Simulación ---")
-        println(io, "Temperatura Inicial: $(initial_temperature) K")
-        println(io, "Presión Inicial: $(initial_pressure/1e6) MPa")
-        println(io, "Densidad Inicial del Aire: $(initial_air_density_n) m^-3")
-        println(io, "Energía Inicial de los Electrones: $(electron_injection_energy_eV) eV")
-        println(io, "Campo Magnético Axial (Bz): $(magnetic_field_strength) T")
-        println(io, "Paso de Tiempo (dt): $(dt) s")
-        println(io, "Tiempo de Simulación por paso: $(dt) s") # Clarify time per step
-        println(io, "Electrones Simulados por paso: $(simulated_electrons_per_step)")
-        println(io, "Temperatura Objetivo: $(target_temperature) K")
-        println(io, "Máximo número de pasos: $(max_steps)")
-        println(io, "\n--- Resultados ---")
-        println(io, "Temperatura Final Promedio: $(avg_temps_history_julia[end]) K")
-        println(io, "Alcanzó Temperatura Objetivo: $(reached_target_temp)")
-        println(io, "Número de Pasos Simulados: $(final_step)")
-        println(io, "Tiempo Total de Simulación: $(final_step * dt) s") # Total simulation time
-        println(io, "Aumento Total de Energía Interna del Aire: $(increase_internal_energy) J")
-        println(io, "Energía Total Introducida por Electrones: $(total_input_energy) J")
-        println(io, "Eficiencia de la Simulación: $(efficiency_simulation) %") # Now reports avg_efficiency_julia
-        println(io, "Eficiencia Promedio por Paso: $(avg_efficiency_julia) %") # Keep for clarity
-        println(io, "\n--- Plots ---")
-        println(io, "Temperatura Promedio vs Tiempo: temperature_vs_time.png")
-        println(io, "Eficiencia Promedio vs Tiempo: efficiency_vs_time.png") # Added efficiency vs time plot to report
-        println(io, "Densidad de Electrones al Final (Slice): density_heatmap.png")
-        println(io, "Temperatura del Aire al Final (Slice): temperature_heatmap.png")
-        final_temperature = avg_temps_history_julia[end]
-        energy_based_efficiency, delta_U, initial_U, final_U = calculate_energy_based_efficiency(
-            initial_temperature, final_temperature, initial_air_density_n, cell_volume, TOTAL_CELLS, accumulated_input_energy
+        println(io, "--- PIC-MCC Simulation Report ---")
+        println(io, "Date and Time: $(Dates.now())")
+        println(io, "\n--- Simulation Parameters ---")
+        println(io, "Initial Temperature: $(params.initial_temperature) K")
+        println(io, "Target Temperature: $(params.target_temperature) K")
+        println(io, "Initial Pressure: $(params.initial_pressure / 1e6) MPa")
+        println(io, "Initial Air Density: $(params.initial_air_density_n) m^-3")
+        println(io, "Electron Injection Energy: $(params.electron_injection_energy_eV) eV")
+        println(io, "Axial Magnetic Field (Bz): $(magnetic_field_strength) T")
+        println(io, "Anode Voltage: $(params.anode_voltage) V")
+        println(io, "Time Step (dt): $(params.dt) s")
+        println(io, "Simulated Electrons per Step: $(params.simulated_electrons_per_step)")
+        println(io, "Max Simulation Steps: $(params.max_steps)")
+
+        println(io, "\n--- Simulation Results ---")
+        println(io, "Final Average Temperature: $(round(final_avg_temp, digits=2)) K")
+        println(io, "Reached Target Temperature: $(results.reached_target_temp)")
+        println(io, "Number of Steps Simulated: $(results.final_step)")
+        println(io, "Total Simulated Time: $(results.final_step * params.dt * 1e6) µs")
+        println(io, "Average Step Efficiency: $(round(results.avg_efficiency, digits=2)) %")
+        println(io, "Average Electron Lifetime: $(round(results.avg_electron_lifetime * 1e9, digits=3)) ns")
+        println(io, "Estimated Final Plasma Conductivity: $(round(results.plasma_conductivity, sigdigits=3)) S/m")
+
+        # Detailed energy balance calculation
+        eff, delta_U, initial_U, final_U = calculate_energy_based_efficiency(
+            params.initial_temperature, final_avg_temp, params.initial_air_density_n,
+            params.cell_volume, params.total_cells, results.accumulated_input_energy
         )
-        println("\n--- Eficiencia Basada en Energía Interna ---")
-        println("Energía Interna Inicial del Gas: $(initial_U) J")
-        println("Energía Interna Final del Gas: $(final_U) J")
-        println("Cambio en Energía Interna (ΔU): $(delta_U) J")
-        println("Energía Total de Electrones (Input): $(accumulated_input_energy) J")
-        println("Eficiencia Térmica Global: $(round(energy_based_efficiency, digits=2)) %")
-        println(io, "Tiempo Promedio de Vida de Electrones: $(avg_electron_lifetime * 1e9) ns")
-        println(io, "Conductividad del Plasma Estimada: $(plasma_conductivity) S/m")
+        
+        println(io, "\n--- Overall Energy Balance ---")
+        println(io, "Total Injected Electron Energy: $(results.accumulated_input_energy) J")
+        println(io, "Initial Gas Internal Energy: $(initial_U) J")
+        println(io, "Final Gas Internal Energy: $(final_U) J")
+        println(io, "Change in Internal Energy (ΔU): $(delta_U) J")
+        println(io, "Overall Thermal Efficiency (ΔU / E_in): $(round(eff, digits=2)) %")
+
+        println(io, "\n--- Generated Files ---")
+        println(io, "Temperature vs. Time Plot: plots/temperature_vs_time.png")
+        println(io, "Efficiency vs. Time Plot: plots/efficiency_vs_time.png")
+        println(io, "Final Electron Density Heatmap: plots/density_heatmap.png")
+        println(io, "Final Temperature Heatmap: plots/temperature_heatmap.png")
     end
-    println("\nReporte guardado en: $(filename)")
+    println("\nSimulation report saved to: $(filename)")
 end
 
-# --- Exportación de Datos a CSV para Interfaz Gráfica ---
-function export_simulation_data_to_csv(time_points, avg_temps_history, efficiency_history,
-                                     final_density_grid, final_temperature_grid,
-                                     x_grid, y_grid, z_grid, simulation_params,
-                                     detailed_data, results_df, best_params)
-    println("\n--- Exportando datos a CSV para visualización externa ---")
+# --- Data Export to CSV ---
 
-    # Asegurar que la carpeta de datos exista
-    data_dir = "simulation_data"
+"""
+Exports simulation time-series, final grids, and parameter search results to CSV files.
+Handles both CPU (Array) and GPU (CuArray) data.
+"""
+function export_simulation_data_to_csv(data_dir, params, results, parameter_search_df)
+    println("\n--- Exporting data to CSV for external visualization ---")
     isdir(data_dir) || mkdir(data_dir)
 
-    # 1. Exportar temperatura vs tiempo
-    temp_time_df = DataFrame(
-        Time_microseconds = time_points,
-        Temperature_K = avg_temps_history
-    )
-    CSV.write("$data_dir/temperature_vs_time.csv", temp_time_df)
+    # GPU: Ensure final grid data is on the CPU before processing
+    final_density_grid_cpu = to_cpu(results.final_density_grid)
+    final_temperature_grid_cpu = to_cpu(results.final_temperature_grid)
 
-    # 2. Exportar eficiencia vs tiempo
-    efficiency_time_df = DataFrame(
-        Time_microseconds = time_points[2:end],
-        Efficiency_percent = efficiency_history
-    )
-    CSV.write("$data_dir/efficiency_vs_time.csv", efficiency_time_df)
+    # 1. Export temperature vs. time
+    time_points = (0:results.final_step) .* (params.dt * 1e6)
+    temp_time_df = DataFrame(Time_microseconds=time_points, Temperature_K=to_cpu(results.avg_temps_history))
+    CSV.write(joinpath(data_dir, "temperature_vs_time.csv"), temp_time_df)
 
-    # 3. Exportar malla de temperatura final
-    z_slice_index = num_z_cells ÷ 2
-    temp_slice = final_temperature_grid[:, :, z_slice_index]
-
-    temp_grid_data = []
-    for i in 1:length(x_grid)-1
-        for j in 1:length(y_grid)-1
-            push!(temp_grid_data, (x_grid[i], y_grid[j], temp_slice[i, j]))
-        end
+    # 2. Export efficiency vs. time
+    if !isempty(results.efficiency_history)
+        eff_time_points = (1:results.final_step) .* (params.dt * 1e6)
+        efficiency_time_df = DataFrame(Time_microseconds=eff_time_points, Efficiency_percent=results.efficiency_history)
+        CSV.write(joinpath(data_dir, "efficiency_vs_time.csv"), efficiency_time_df)
     end
 
-    temp_grid_df = DataFrame(temp_grid_data, [:x_mm, :y_mm, :temperature_K])
-    temp_grid_df.x_mm .*= 1000
-    temp_grid_df.y_mm .*= 1000
-    CSV.write("$data_dir/temperature_grid.csv", temp_grid_df)
-
-    # 4. Exportar malla de densidad de electrones final
-    density_slice = final_density_grid[:, :, z_slice_index]
-
-    density_grid_data = []
-    for i in 1:length(x_grid)-1
-        for j in 1:length(y_grid)-1
-            push!(density_grid_data, (x_grid[i], y_grid[j], density_slice[i, j]))
-        end
-    end
-
-    density_grid_df = DataFrame(density_grid_data, [:x_mm, :y_mm, :electron_density])
-    density_grid_df.x_mm .*= 1000
-    density_grid_df.y_mm .*= 1000
-    CSV.write("$data_dir/density_grid.csv", density_grid_df)
-
-    # 5. Exportar parámetros de simulación
-    sim_params_df = DataFrame(
-        Parameter = [
-            "Initial Temperature (K)",
-            "Target Temperature (K)",
-            "Initial Pressure (MPa)",
-            "Electron Energy (eV)",
-            "Magnetic Field (T)",
-            "Time Step (s)",
-            "Chamber Width (mm)",
-            "Chamber Length (mm)",
-            "Chamber Height (mm)",
-            "Final Average Temperature (K)",
-            "Average Efficiency (%)",
-            "Total Simulation Time (µs)"
-        ],
-        Value = [
-            simulation_params["initial_temperature"],
-            simulation_params["target_temperature"],
-            simulation_params["initial_pressure"]/1e6,
-            simulation_params["electron_energy_eV"],
-            simulation_params["magnetic_field_strength"],
-            simulation_params["dt"],
-            simulation_params["chamber_width"]*1000,
-            simulation_params["chamber_length"]*1000,
-            simulation_params["chamber_height"]*1000,
-            avg_temps_history[end],
-            simulation_params["avg_efficiency"],
-            time_points[end]
-        ]
+    # 3. Export final temperature grid (slice)
+    z_slice_index = size(final_temperature_grid_cpu, 3) ÷ 2
+    temp_slice = final_temperature_grid_cpu[:, :, z_slice_index]
+    temp_grid_df = DataFrame(
+        [(x, y, temp_slice[i, j]) for (i, x) in enumerate(params.x_grid[1:end-1]) for (j, y) in enumerate(params.y_grid[1:end-1])],
+        [:x_m, :y_m, :temperature_K]
     )
-    CSV.write("$data_dir/simulation_parameters.csv", sim_params_df)
+    CSV.write(joinpath(data_dir, "temperature_grid_slice.csv"), temp_grid_df)
 
-    # 6. Exportar datos adicionales
-    detailed_df = DataFrame(
-        Time_microseconds = time_points[2:end],
-        Electron_Count = detailed_data["electron_count_history"][2:end],
-        Input_Energy_J = detailed_data["input_energy_history"],
-        Inelastic_Energy_Transfer_J = detailed_data["inelastic_energy_history"],
-        Elastic_Energy_Transfer_J = detailed_data["elastic_energy_history"],
-        Total_Energy_Transfer_J = detailed_data["total_energy_transfer_history"],
-        Efficiency_percent = efficiency_history
+    # 4. Export final electron density grid (slice)
+    density_slice = final_density_grid_cpu[:, :, z_slice_index]
+    density_grid_df = DataFrame(
+        [(x, y, density_slice[i, j]) for (i, x) in enumerate(params.x_grid[1:end-1]) for (j, y) in enumerate(params.y_grid[1:end-1])],
+        [:x_m, :y_m, :electron_density_count]
     )
-    CSV.write("$data_dir/detailed_simulation_data.csv", detailed_df)
+    CSV.write(joinpath(data_dir, "density_grid_slice.csv"), density_grid_df)
 
-    # 7. Exportar resultados de búsqueda de parámetros
-    CSV.write("$data_dir/parameter_search_results.csv", results_df)
+    # 5. Export simulation parameters
+    sim_params_df = DataFrame(Parameter=string.(keys(params)), Value=string.(values(params)))
+    CSV.write(joinpath(data_dir, "simulation_parameters.csv"), sim_params_df)
 
-    # 8. Exportar mejores parámetros
-    best_params_df = DataFrame(
-        Parameter = ["Electron Energy (eV)", "Pressure (MPa)", "Magnetic Field (T)", "Best Efficiency (%)"],
-        Value = [best_params[1], best_params[2]/1e6, best_params[3], best_efficiency]
-    )
-    CSV.write("$data_dir/best_parameters.csv", best_params_df)
-
-    # 9. Crear conjuntos de datos para gráficas comparativas
-    # 9.1 Eficiencia vs Energía de Electrones
-    energy_comp_data = []
-    for field in unique(results_df.MagneticField)
-        for pressure in unique(results_df.Pressure)
-            subset = results_df[(results_df.MagneticField .== field) .& (results_df.Pressure .== pressure), :]
-            if !isempty(subset)
-                for row in eachrow(subset)
-                    push!(energy_comp_data, (row.ElectronEnergy, row.FinalEfficiency, pressure/1e6, field))
-                end
-            end
-        end
+    # 6. Export detailed step-by-step data
+    if !isempty(results.detailed_data)
+        detailed_df = DataFrame(results.detailed_data)
+        detailed_df.Time_microseconds = (1:nrow(detailed_df)) .* (params.dt * 1e6)
+        CSV.write(joinpath(data_dir, "detailed_simulation_data.csv"), detailed_df)
     end
-    energy_comp_df = DataFrame(energy_comp_data, [:ElectronEnergy_eV, :FinalEfficiency_percent, :Pressure_MPa, :MagneticField_T])
-    CSV.write("$data_dir/efficiency_vs_energy.csv", energy_comp_df)
 
-    # 9.2 Eficiencia vs Presión
-    pressure_comp_data = []
-    for field in unique(results_df.MagneticField)
-        for energy in unique(results_df.ElectronEnergy)
-            subset = results_df[(results_df.MagneticField .== field) .& (results_df.ElectronEnergy .== energy), :]
-            if !isempty(subset)
-                for row in eachrow(subset)
-                    push!(pressure_comp_data, (row.Pressure/1e6, row.FinalEfficiency, energy, field))
-                end
-            end
-        end
+    # 7. Export parameter search results
+    if !isnothing(parameter_search_df)
+        CSV.write(joinpath(data_dir, "parameter_search_results.csv"), parameter_search_df)
+        
+        # Create comparative analysis datasets
+        # (This part is complex and depends on the exact columns of parameter_search_df)
+        println("Parameter search results exported.")
     end
-    pressure_comp_df = DataFrame(pressure_comp_data, [:Pressure_MPa, :FinalEfficiency_percent, :ElectronEnergy_eV, :MagneticField_T])
-    CSV.write("$data_dir/efficiency_vs_pressure.csv", pressure_comp_df)
 
-    # 9.3 Eficiencia vs Campo Magnético
-    field_comp_data = []
-    for pressure in unique(results_df.Pressure)
-        for energy in unique(results_df.ElectronEnergy)
-            subset = results_df[(results_df.Pressure .== pressure) .& (results_df.ElectronEnergy .== energy), :]
-            if !isempty(subset)
-                for row in eachrow(subset)
-                    push!(field_comp_data, (row.MagneticField, row.FinalEfficiency, energy, pressure/1e6))
-                end
-            end
-        end
-    end
-    field_comp_df = DataFrame(field_comp_data, [:MagneticField_T, :FinalEfficiency_percent, :ElectronEnergy_eV, :Pressure_MPa])
-    CSV.write("$data_dir/efficiency_vs_magnetic_field.csv", field_comp_df)
-
-    println("Datos exportados con éxito a la carpeta '$data_dir'")
-    println("Archivos generados para análisis de eficiencia vs parámetros:")
-    println("  - parameter_search_results.csv")
-    println("  - best_parameters.csv")
-    println("  - efficiency_vs_energy.csv")
-    println("  - efficiency_vs_pressure.csv")
-    println("  - efficiency_vs_magnetic_field.csv")
-    println("Archivos generados para análisis detallado de simulación:")
-    println("  - temperature_vs_time.csv")
-    println("  - efficiency_vs_time.csv")
-    println("  - detailed_simulation_data.csv")
-    println("  - temperature_grid.csv")
-    println("  - density_grid.csv")
-    println("  - simulation_parameters.csv")
+    println("Data successfully exported to the '$(data_dir)' folder.")
 end

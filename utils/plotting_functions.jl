@@ -1,8 +1,26 @@
-using Plots, LinearAlgebra
+# ---------------------------------------------------------------------------
+# ARCHIVO: plotting_functions.jl (Funciones para generar gráficos y animaciones)
+# ---------------------------------------------------------------------------
+
+using Plots
+using LinearAlgebra
+# GPU: Importamos CUDA para poder verificar el tipo de los arrays (isa(..., CuArray))
+using CUDA
+
+#pyplot()
+
+# --- Función de utilidad para asegurar que los datos estén en la CPU ---
+# Esta función será nuestro principal mecanismo de seguridad.
+# Si el dato ya es un Array de CPU, no hace nada.
+# Si es un CuArray de GPU, lo copia a la CPU.
+to_cpu(data::AbstractArray) = Array(data)
+to_cpu(data) = data # Para otros tipos de datos que no son arrays
 
 # --- Temperature vs Time Plot ---
-function plot_temperature_vs_time(time_points, avg_temps_history_julia, target_temperature)
-    p1 = plot(time_points, avg_temps_history_julia,
+function plot_temperature_vs_time(time_points, avg_temps_history, target_temperature)
+    # No se necesita `to_cpu` aquí, ya que los historiales de escalares
+    # (como la temperatura promedio) siempre se mantienen en la CPU.
+    p1 = plot(time_points, avg_temps_history,
               label="Average Air Temperature",
               xlabel="Time (µs)", ylabel="Temperature (K)",
               title="PIC-MCC Simulation: Air Heating to Target Temperature",
@@ -14,8 +32,9 @@ function plot_temperature_vs_time(time_points, avg_temps_history_julia, target_t
 end
 
 # --- Efficiency vs Time Plot ---
-function plot_efficiency_vs_time(time_points, efficiency_history_julia)
-    p4 = plot(time_points, efficiency_history_julia,
+function plot_efficiency_vs_time(time_points, efficiency_history)
+    # Tampoco se necesita `to_cpu` aquí.
+    p4 = plot(time_points, efficiency_history,
               label="Step Efficiency",
               xlabel="Time (µs)", ylabel="Efficiency (%)",
               title="Heating Efficiency per Step",
@@ -23,87 +42,101 @@ function plot_efficiency_vs_time(time_points, efficiency_history_julia)
     return p4
 end
 
-
 # --- Heatmap Functions for Density and Temperature ---
 function heatmap_density_slice(x_grid, y_grid, final_density_grid, slice_index)
-    p2 = heatmap(x_grid*1000, y_grid*1000, final_density_grid[:, slice_index, :]',
+    # GPU: Aseguramos que la malla de densidad esté en la CPU antes de plotear.
+    density_cpu = to_cpu(final_density_grid)
+    
+    p2 = heatmap(x_grid*1000, y_grid*1000, density_cpu[:, slice_index, :]',
                  xlabel="x (mm)", ylabel="y (mm)",
-                 title="Electron Density at Final State (Mid-Z Slice, with B Field)",
+                 title="Electron Density at Final State (Mid-Z Slice)",
                  aspect_ratio=:auto, color=:viridis,
                  colorbar_title="Electron Density (a.u.)")
     return p2
 end
 
 function heatmap_temperature_slice(x_grid, y_grid, final_temperature_grid, slice_index)
-    p3 = heatmap(x_grid*1000, y_grid*1000, final_temperature_grid[:, slice_index, :]',
+    # GPU: Aseguramos que la malla de temperatura esté en la CPU.
+    temp_cpu = to_cpu(final_temperature_grid)
+    
+    p3 = heatmap(x_grid*1000, y_grid*1000, temp_cpu[:, slice_index, :]',
                  xlabel="x (mm)", ylabel="y (mm)",
-                 title="Air Temperature at Final State (Mid-Z Slice, with B Field)",
+                 title="Air Temperature at Final State (Mid-Z Slice)",
                  aspect_ratio=:auto, color=:magma,
                  colorbar_title="Temperature (K)")
     return p3
 end
 
 function plot_efficiency_vs_lifetime(results_df)
+    # No se necesita `to_cpu` aquí, ya que DataFrames siempre está en la CPU.
     p = scatter(results_df.AvgLifetime .* 1e9, results_df.FinalEfficiency,
                 xlabel="Average Electron Lifetime (ns)",
                 ylabel="Final Efficiency (%)",
                 title="Efficiency vs Electron Lifetime",
-                legend=false,
-                marker=(:circle, 6),
-                color=:purple,
-                grid=true)
+                legend=false, marker=(:circle, 6), color=:purple, grid=true)
     
     if length(results_df.AvgLifetime) > 1
-        # Manual linear regression
         x = results_df.AvgLifetime .* 1e9
         y = results_df.FinalEfficiency
         A = [x ones(length(x))]
-        coeffs = A \ y  # Least squares solution
-        plot!(p, x, A * coeffs,
-              line=(:dot, 3, :red),
-              label="Linear Trend")
+        coeffs = A \ y
+        plot!(p, x, A * coeffs, line=(:dot, 3, :red), label="Linear Trend")
     end
-    
     return p
 end
 
 # --- Electron Positions Scatterplot ---
 function plot_electron_positions(positions, x_lim, z_lim; title="")
-    p = scatter(positions[:,1]*1000, positions[:,3]*1000,  # Convert to mm
-               xlabel="x (mm)",
-               ylabel="z (mm)",
-               title=title,
-               legend=false,
-               markersize=2,
-               markercolor=:blue,
-               xlim=(0, x_lim*1000),
-               ylim=(0, z_lim*1000))
+    # GPU: Aseguramos que el array de posiciones esté en la CPU.
+    pos_cpu = to_cpu(positions)
     
-    # Draw chamber outline
+    # Evitar error si no hay partículas que plotear
+    if isempty(pos_cpu)
+        p = plot(xlabel="x (mm)", ylabel="z (mm)", title=title,
+                 xlim=(0, x_lim*1000), ylim=(0, z_lim*1000))
+    else
+        p = scatter(pos_cpu[:,1]*1000, pos_cpu[:,3]*1000,
+                   xlabel="x (mm)", ylabel="z (mm)", title=title,
+                   legend=false, markersize=2, markercolor=:blue,
+                   xlim=(0, x_lim*1000), ylim=(0, z_lim*1000))
+    end
+    
     plot!(p, [0, x_lim*1000, x_lim*1000, 0, 0],
           [0, 0, z_lim*1000, z_lim*1000, 0],
           color=:black, linewidth=2, linestyle=:solid, label="Chamber")
     return p
 end
 
-# --- Electron Positions Animation ---
+# --- Animaciones ---
+# Las funciones de animación llaman a las funciones de ploteo individuales,
+# que ya se encargan de mover los datos a la CPU. Por lo tanto, no necesitan
+# cambios directos, pero se benefician de la robustez añadida.
+
 function animate_electron_positions(position_history, x_lim, z_lim;
                                    filename="plots/electron_positions_animation.gif",
-                                   fps=10)
-    # Create animation
-    anim = @animate for (step, positions) in enumerate(position_history)
-        title_str = "Electron Positions (Step $step)"
-        plot_electron_positions(positions, x_lim, z_lim; title=title_str)
+                                   fps=10, max_frames=50)
+    if length(position_history) < 2
+        @warn "No hay suficientes datos de historial de posiciones para animar."
+        return
     end
     
-    # Save animation as GIF
+    frame_step = max(1, ceil(Int, length(position_history) / max_frames))
+    frame_indices = 1:frame_step:length(position_history)
+    
+    anim = @animate for i in frame_indices
+        # La función plot_electron_positions ya maneja la conversión a CPU.
+        plot_electron_positions(position_history[i], x_lim, z_lim; title="Electron Positions (Step $i)")
+    end
+    
     gif(anim, filename, fps=fps)
-    println("Electron positions animation saved to: $filename")
-    return anim
+    println("Animación de posiciones guardada en: $filename")
 end
 
 function plot_charge_density_slice(x_grid, y_grid, charge_density_grid, slice_index)
-    p = heatmap(x_grid*1000, y_grid*1000, charge_density_grid[:, slice_index, :]',
+    # GPU: Aseguramos que la malla de densidad de carga esté en la CPU.
+    charge_density_cpu = to_cpu(charge_density_grid)
+    
+    p = heatmap(x_grid*1000, y_grid*1000, charge_density_cpu[:, slice_index, :]',
                 xlabel="x (mm)", ylabel="y (mm)",
                 title="Charge Density (Z Slice)",
                 aspect_ratio=:auto, color=:RdBu,
@@ -112,27 +145,27 @@ function plot_charge_density_slice(x_grid, y_grid, charge_density_grid, slice_in
 end
 
 function plot_potential_xz_slice(x_grid, z_grid, potential_grid, y_slice_index; title="Electric Potential (X-Z Slice)")
-    # For 1D potential (constant in x-y), take first y-slice
-    slice = potential_grid[:, 1, :]
-    v_min = minimum(potential_grid)
-    v_max = maximum(potential_grid)
+    # GPU: Aseguramos que la malla de potencial esté en la CPU.
+    potential_cpu = to_cpu(potential_grid)
+    
+    slice = potential_cpu[:, y_slice_index, :]
+    v_min, v_max = extrema(potential_cpu)
     
     p = heatmap(x_grid*1000, z_grid*1000, slice',
-                xlabel="x (mm)", ylabel="z (mm)",
-                title=title,
-                aspect_ratio=:auto, color=:viridis,
-                clims=(v_min, v_max),
-                colorbar=false)  # Remove colorbar
+                xlabel="x (mm)", ylabel="z (mm)", title=title,
+                aspect_ratio=:auto, color=:viridis, clims=(v_min, v_max))
     return p
 end
 
-function plot_electric_field_vectors(x_grid, z_grid, Ex, Ey, slice_index; step=3, title="")
-    # Create electric field vector visualization
-    x_plot = x_grid[1:step:end] * 1000  # mm
-    z_plot = z_grid[1:step:end] * 1000  # mm
+function plot_electric_field_vectors(x_grid, z_grid, Ex, Ey, Ez, slice_index; step=3, title="")
+    # GPU: Aseguramos que los componentes del campo estén en la CPU.
+    Ex_cpu, Ey_cpu = to_cpu(Ex), to_cpu(Ey)
     
-    Ex_slice = Ex[1:step:end, slice_index, 1:step:end]'
-    Ez_slice = Ey[1:step:end, slice_index, 1:step:end]'
+    x_plot = x_grid[1:step:end] * 1000
+    z_plot = z_grid[1:step:end] * 1000
+    
+    Ex_slice = Ex_cpu[1:step:end, slice_index, 1:step:end]'
+    Ez_slice = Ey_cpu[1:step:end, slice_index, 1:step:end]' # Nota: Originalmente usabas Ey para el componente z del plot
     
     p = quiver(x_plot, z_plot, quiver=(Ex_slice, Ez_slice),
               xlabel="x (mm)", ylabel="z (mm)",
@@ -141,86 +174,22 @@ function plot_electric_field_vectors(x_grid, z_grid, Ex, Ey, slice_index; step=3
     return p
 end
 
-function animate_electric_field(electric_field_history, x_grid, z_grid, slice_index; step=3, fps=10, filename="electric_field_animation.gif", max_frames=50)
-    # Limit frames to prevent OOM
-    frame_step = max(1, ceil(Int, length(electric_field_history)/max_frames))
-    frame_indices = 1:frame_step:length(electric_field_history)
-    anim = @animate for i in frame_indices
-        field_grid = electric_field_history[i]
-        plot_electric_field_vectors(x_grid, z_grid,
-                                   field_grid.Ex,
-                                   field_grid.Ez,
-                                   slice_index;
-                                   step=step,
-                                   title="Step $i: Electric Field")
-    end
-    
-    # Save animation as GIF
-    gif(anim, filename, fps=fps)
-    println("Animation saved to: $filename (frames: $(length(frame_indices)))")
-    return anim
-end
-function animate_potential_slice(potential_history, x_grid, z_grid, slice_index; fps=100, filename="plots/potential_animation.gif", max_frames=50)
-    # Ensure we have enough frames to animate
+function animate_potential_slice(potential_history, x_grid, z_grid, slice_index;
+                                 fps=10, filename="plots/potential_animation.gif", max_frames=50)
     if length(potential_history) < 2
-        @warn "Not enough potential history frames to animate (only $(length(potential_history)) available)"
-        return nothing
+        @warn "No hay suficientes datos de historial de potencial para animar."
+        return
     end
     
-    # Calculate target frames count (minimum 10, maximum max_frames)
-    target_frames = min(max(10, length(potential_history)), max_frames)
-    
-    # Calculate frame step
-    frame_step = max(1, ceil(Int, length(potential_history)/target_frames))
+    frame_step = max(1, ceil(Int, length(potential_history) / max_frames))
     frame_indices = 1:frame_step:length(potential_history)
     
-    # Ensure we don't exceed target_frames
-    if length(frame_indices) > target_frames
-        frame_step = ceil(Int, length(potential_history)/target_frames)
-        frame_indices = 1:frame_step:length(potential_history)
-    end
-    
     anim = @animate for i in frame_indices
-        potential_grid = potential_history[i]
-        plot_potential_xz_slice(x_grid, z_grid, potential_grid, slice_index;
-                             title="Step $i: Electric Potential")
+        # plot_potential_xz_slice ya maneja la conversión a CPU.
+        plot_potential_xz_slice(x_grid, z_grid, potential_history[i], slice_index;
+                                title="Electric Potential (Step $i)")
     end
     
-    # Save animation as GIF
     gif(anim, filename, fps=fps)
-    println("Potential animation saved to: $filename (frames: $(length(frame_indices)))")
-    return anim
-end
-function animate_electron_positions(position_history, x_lim, z_lim;
-                                 filename="plots/electron_positions_animation.gif",
-                                 fps=100, max_frames=50)
-    # Check if there is enough data to animate
-    if length(position_history) < 2
-        @warn "Not enough position data to generate animation (only $(length(position_history)) frames)"
-        return nothing
-    end
-    
-    # Calculate target frames count (minimum 10, maximum max_frames)
-    target_frames = min(max(10, length(position_history)), max_frames)
-    
-    # Calculate frame step
-    frame_step = max(1, ceil(Int, length(position_history)/target_frames))
-    frame_indices = 1:frame_step:length(position_history)
-    
-    # Create animation for selected frames
-    anim = @animate for step in frame_indices
-        positions = position_history[step]
-        title_str = "Electron Positions (Step $step)"
-        plot_electron_positions(positions, x_lim, z_lim; title=title_str)
-    end
-    
-    # Save animation as GIF
-    try
-        gif(anim, filename, fps=fps)
-        println("Position animation saved to: $filename (frames: $(length(frame_indices)))")
-    catch e
-        @error "Error saving animation: $e"
-    end
-    
-    return anim
+    println("Animación de potencial guardada en: $filename")
 end
