@@ -23,10 +23,9 @@ function solve_poisson_equation(charge_density_grid, x_cell_size, y_cell_size, z
     # Inicializar potencial
     V = zeros(nx, ny, nz)
     
-    # Condiciones de frontera
-    # V = 0 en z = 0 (cátodo, donde se inyectan electrones)
-    # V = V_anode en z = nz (ánodo)
-    V[:, :, end] .= V_anode
+    # Condiciones de frontera Dirichlet para z
+    V[:, :, 1] .= 0.0       # Cátodo (z=0)
+    V[:, :, end] .= V_anode  # Ánodo (z=nz)
     
     # Factores para la ecuación de Poisson discretizada
     dx2_inv = 1.0 / x_cell_size^2
@@ -81,6 +80,12 @@ function solve_poisson_equation(charge_density_grid, x_cell_size, y_cell_size, z
         end
     end
     
+    # Debug check: verify anode voltage is uniform
+    anode_values = unique(V[:, :, end])
+    if length(anode_values) != 1 || anode_values[1] != V_anode
+        @warn "Anode voltage is not uniform! Expected $V_anode, got values: $anode_values"
+    end
+
     return V
 end
 

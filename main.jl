@@ -22,10 +22,10 @@ using Statistics
 # --- Parámetros de la Cámara ---
 chamber_width = 0.1   # m
 chamber_length = 0.1  # m
-chamber_height = 0.1  # m
-num_x_cells = 20
-num_y_cells = 20
-num_z_cells = 50
+chamber_height = 0.001  # m
+num_x_cells = 2
+num_y_cells = 2
+num_z_cells = 500
 TOTAL_CELLS = Int(num_x_cells * num_y_cells * num_z_cells)
 
 # --- Malla Rectangular ---
@@ -38,16 +38,19 @@ z_cell_size = z_grid[2] - z_grid[1]
 cell_volume = x_cell_size * y_cell_size * z_cell_size
 
 anode_voltage = 1000.0  # Voltaje del ánodo en Voltios
-electric_field_update_interval = 10  # Actualizar campo eléctrico cada N pasos
+
+# Different update intervals for parameter search vs main simulation
+parameter_search_update_interval = 10  # For parameter search
+main_simulation_update_interval = 10    # For main simulation
 
 # --- Parámetros de Simulación PIC ---
 initial_temperature = 800.0     # K
-target_temperature = 2200.0    # K
-dt = 5e-13                   # s (timestep)
-simulated_electrons_per_step = 100 # Número de macropartículas inyectadas por paso
-physical_electrons_per_step = 5e17 # Número físico de electrones representados por inyección
+target_temperature = 22000.0    # K
+dt = 1e-13                   # s (timestep)
+simulated_electrons_per_step = 500 # Número de macropartículas inyectadas por paso
+physical_electrons_per_step = 5e14 # Número físico de electrones representados por inyección
 particle_weight = physical_electrons_per_step / simulated_electrons_per_step # Peso de cada macropartícula
-max_steps = 1000                # Límite de pasos para la simulación final
+max_steps = 10000                # Límite de pasos para la simulación final
 
 # --- Parámetros Variables Iniciales (se sobrescribirán con los óptimos) ---
 electron_injection_energy_eV = 50.0 # eV (valor inicial de ejemplo)
@@ -70,7 +73,7 @@ isdir("simulation_data") || mkdir("simulation_data") # Para CSVs
 # --- Ejecutar Búsqueda de Parámetros ---
 println("\n--- Iniciando Búsqueda de Parámetros Óptimos ---")
 
-results_df, best_params, best_efficiency = parameter_search(x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval)
+results_df, best_params, best_efficiency = parameter_search(x_grid, y_grid, z_grid, anode_voltage, parameter_search_update_interval)
 
 # --- Mostrar Mejores Parámetros ---
 println("\n--- Mejores Parámetros Encontrados ---")
@@ -130,15 +133,10 @@ println("\n--- Ejecutando Simulación Completa con Parámetros Óptimos y Campo 
 electron_injection_energy_eV = best_params[1]
 initial_pressure = best_params[2]
 magnetic_field_strength = best_params[3]
-optimal_attractive_potential_V = best_params[4]
+optimal_anode_voltage = best_params[4]
 
 # Actualizar variables globales y configurar para la simulación final
 magnetic_field = [0.0, 0.0, magnetic_field_strength] # Campo B óptimo
-# !!! NUEVO: Calcular el campo E usando el potencial óptimo !!!
-if chamber_height <= 0.0
-    error("chamber_height debe ser positivo.")
-end
-electric_field = [0.0, 0.0, -optimal_attractive_potential_V / chamber_height] # Campo E óptimo
 
 initial_air_density_n = calculate_air_density_n(initial_pressure, initial_temperature) # Densidad con P óptima
 initial_electron_velocity = electron_velocity_from_energy(electron_injection_energy_eV) # Velocidad con E óptima
@@ -146,25 +144,24 @@ initial_positions, initial_velocities = initialize_electrons(0, chamber_width, c
 initial_temperature_grid = fill(initial_temperature, (num_x_cells, num_y_cells, num_z_cells))
 initial_air_density_n_value = Float64(initial_air_density_n)
 
-println("Ejecutando con E=$(electron_injection_energy_eV)eV, P=$(initial_pressure/1e6)MPa, B=$(magnetic_field_strength)T, V_attr=$(optimal_attractive_potential_V)V")
-println("Campo Eléctrico Ez: $(round(electric_field[3], digits=2)) V/m")
+println("Ejecutando con E=$(electron_injection_energy_eV)eV, P=$(initial_pressure/1e6)MPa, B=$(magnetic_field_strength)T, V_anode=$(optimal_anode_voltage)V")
 
-# !!! MODIFICADO: Pasar electric_field a run_pic_simulation !!!
 # Asegúrate que la función run_pic_simulation retorna la tupla en este orden
 (temperatures_history_julia, avg_temps_history_julia, density_history_julia,
  energy_deposition_history_julia, elastic_energy_deposition_history_julia, final_step, reached_target_temp,
  accumulated_input_energy, efficiency_history_julia, avg_efficiency_julia, detailed_data, avg_electron_lifetime, conductivity_history,
- final_charge_density_grid, final_electric_field_grid, final_potential_grid
- ) = run_pic_simulation(
-   initial_positions, initial_velocities, initial_temperature_grid,
-   initial_air_density_n_value, air_composition, dt, simulated_electrons_per_step,
-   magnetic_field,       # Campo B óptimo
-   electric_field,       # Campo E óptimo
-   electron_charge, electron_mass, initial_electron_velocity,
-   x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval,
-   verbose=true,
-   max_steps_override=max_steps
+ final_charge_density_grid, final_electric_field_grid, final_potential_grid, electric_field_history, potential_history,
+ position_history) = run_pic_simulation(
+    initial_positions, initial_velocities, initial_temperature_grid,
+    initial_air_density_n_value, air_composition, dt, simulated_electrons_per_step,
+    magnetic_field,       # Campo B óptimo
+    electron_charge, electron_mass, initial_electron_velocity,
+    x_grid, y_grid, z_grid, optimal_anode_voltage, main_simulation_update_interval,
+    verbose=true,
+    max_steps_override=max_steps
 )
+
+println(length(potential_history))
 
 # --- Calcular Métricas Finales ---
 efficiency_simulation = avg_efficiency_julia # Usar la eficiencia promedio como principal
@@ -236,35 +233,61 @@ if final_step > 0
     final_temperature_grid = temperatures_history_julia[end] # Ya es el grid de temperatura
     if all(size(final_density_grid) .> 0) && all(size(final_temperature_grid) .> 0)
         z_slice_index = max(1, min(num_z_cells, num_z_cells ÷ 2)) # Índice seguro para el slice
+        y_slice_index = 1
 
         # Heatmap de Densidad (slice)
-        p2 = heatmap_density_slice(x_grid, y_grid, final_density_grid, z_slice_index)
+        p2 = heatmap_density_slice(x_grid, z_grid, final_density_grid, y_slice_index)
         savefig(p2, "plots/density_heatmap.png")
         display(p2)
 
         # Heatmap de Temperatura (slice)
-        p3 = heatmap_temperature_slice(x_grid, y_grid, final_temperature_grid, z_slice_index)
+        p3 = heatmap_temperature_slice(x_grid, z_grid, final_temperature_grid, y_slice_index)
         savefig(p3, "plots/temperature_heatmap.png")
         display(p3)
         
         # --- Nuevos plots para campos eléctricos ---
         # Plot de Densidad de Carga
-        p6 = plot_charge_density_slice(x_grid, y_grid, final_charge_density_grid, z_slice_index)
+        p6 = plot_charge_density_slice(x_grid, z_grid, final_charge_density_grid, y_slice_index)
         savefig(p6, "plots/charge_density_slice.png")
         display(p6)
         
-        # Plot de Potencial Eléctrico
-        p7 = plot_potential_slice(x_grid, y_grid, final_potential_grid, z_slice_index)
+        # Compute y slice index for X-Z plane
+        y_slice_index = max(1, min(num_y_cells, num_y_cells ÷ 2))
+        
+        # Plot de Potencial Eléctrico en plano X-Z
+        p7 = plot_potential_xz_slice(x_grid, z_grid, final_potential_grid, y_slice_index)
         savefig(p7, "plots/potential_slice.png")
         display(p7)
         
         # Plot de Vectores de Campo Eléctrico
-        p8 = plot_electric_field_vectors(x_grid, y_grid,
+        p8 = plot_electric_field_vectors(x_grid, z_grid,
                                         final_electric_field_grid.Ex,
-                                        final_electric_field_grid.Ey,
-                                        z_slice_index)
+                                        final_electric_field_grid.Ez,
+                                        y_slice_index)
         savefig(p8, "plots/electric_field_vectors.png")
         display(p8)
+        
+        # --- Memory Optimization: Reduce animation frames and add monitoring ---
+        max_frames = 50  # Limit animation frames to prevent OOM
+        # --- Generate Potential Animation (reduced frames) ---
+        if !isempty(potential_history)
+            println("Generando animación reducida del potencial (max $max_frames frames)...")
+            animate_potential_slice(potential_history, x_grid, z_grid, y_slice_index;
+                                     fps=5, filename="plots/potential_animation.gif", max_frames=max_frames)
+        end
+        
+        # --- Generate Electron Positions Animation (reduced frames) ---
+        if !isempty(position_history)
+            println("Generando animación reducida de posiciones (max $max_frames frames)...")
+            animate_electron_positions(position_history, chamber_width, chamber_height;
+                                     filename="plots/electron_positions_animation.gif", fps=5, max_frames=max_frames)
+        end
+        
+        # --- Memory Usage Report ---
+        println("\n--- Uso de Memoria Post-Plotting ---")
+        println("Longitud de historial eléctrico: ", length(electric_field_history))
+        println("Longitud de historial potencial: ", length(potential_history))
+        println("Longitud de historial posiciones: ", length(position_history))
     else
         println("No se pudieron generar heatmaps porque los grids finales están vacíos.")
     end
@@ -307,14 +330,11 @@ simulation_params = Dict(
     "initial_pressure_Pa" => initial_pressure,
     "electron_energy_eV" => electron_injection_energy_eV,
     "magnetic_field_T" => magnetic_field_strength,
-    # !!! USAR el potencial óptimo encontrado !!!
-    "attractive_potential_V" => optimal_attractive_potential_V,
     "electric_field_Ez_Vm" => electric_field[3], # Ez correspondiente al óptimo V
     "dt_s" => dt,
     "chamber_width_m" => chamber_width,
     "chamber_length_m" => chamber_length,
     "chamber_height_m" => chamber_height,
-    # ... (resto de parámetros como antes: temp final, eficiencia, etc.) ...
     "final_avg_temp_K" => avg_temps_history_julia[end],
     "avg_efficiency_percent" => avg_efficiency_julia,
     "avg_electron_lifetime_ns" => avg_electron_lifetime * 1e9,

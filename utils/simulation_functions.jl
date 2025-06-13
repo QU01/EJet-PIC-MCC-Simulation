@@ -5,7 +5,7 @@ using DataFrames
 # --- Función Principal de Simulación (modificada para calcular eficiencia por paso) ---
 function run_pic_simulation(initial_positions, initial_velocities, initial_temperature_grid,
     initial_air_density_n, air_composition, dt, simulated_electrons_per_step,
-    magnetic_field, electric_field, electron_charge, electron_mass,
+    magnetic_field, electron_charge, electron_mass,
     initial_electron_velocity, x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval;
     verbose=true, max_steps_override=nothing)
 
@@ -60,6 +60,9 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
     temperature_grid = copy(initial_temperature_grid)
     rng = MersenneTwister(0) # O usar un RNG global
 
+    # Initialize position_history for animation
+    position_history = []
+
     current_time = 0.0
     step = 0
     final_step = 0
@@ -83,15 +86,23 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
     
     # Campo eléctrico inicial (sin electrones)
     initial_charge_density = zeros(num_x_cells, num_y_cells, num_z_cells)
-    initial_potential = solve_poisson_equation(initial_charge_density, 
+    initial_potential = solve_poisson_equation(initial_charge_density,
                                              x_cell_size, y_cell_size, z_cell_size,
                                              anode_voltage)
     Ex, Ey, Ez = calculate_electric_field_from_potential(initial_potential,
-                                                        x_cell_size, y_cell_size, z_cell_size)
+                                                       x_cell_size, y_cell_size, z_cell_size)
     current_electric_field = ElectricFieldGrid(Ex, Ey, Ez, initial_potential)
     
     push!(electric_field_history, current_electric_field)
     push!(potential_history, initial_potential)
+    
+    # Always store potential for animation
+    push!(potential_history, potential_grid)
+    
+    # Store electric field only when updated
+    if step % electric_field_update_interval == 0
+        push!(electric_field_history, electric_field_grid)
+    end
 
     # --- Bucle Principal ---
     while avg_temps_history[end] < target_temperature && step < local_max_steps
@@ -149,6 +160,12 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
             potential_grid = solve_poisson_equation(charge_density_grid, x_cell_size, y_cell_size, z_cell_size, anode_voltage)
             Ex, Ey, Ez = calculate_electric_field_from_potential(potential_grid, x_cell_size, y_cell_size, z_cell_size)
             electric_field_grid = ElectricFieldGrid(Ex, Ey, Ez, potential_grid)
+
+            push!(potential_history, potential_grid)
+            
+            # Guardar en el historial para animación
+            push!(electric_field_history, electric_field_grid)
+            
             if verbose
                 println("  Campo eléctrico actualizado en el paso $step")
             end
@@ -238,6 +255,8 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
         # Eficiencia = (Energía ganada por gas) / (Energía inyectada)
         step_efficiency = 0.0
         if step_input_energy > 1e-20 # Evitar división por cero
+
+            """
             # Asegurar que la ganancia no exceda la entrada (podría pasar por errores numéricos)
             actual_energy_transfer = min(energy_gained_by_gas, step_input_energy)
             if energy_gained_by_gas > step_input_energy + 1e-9 # Pequeña tolerancia
@@ -249,6 +268,12 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
                  println("⚠️ Advertencia: El gas perdió energía ($(energy_gained_by_gas) J) a pesar de la entrada de energía.")
                  actual_energy_transfer = 0.0
             end
+
+            
+
+            """
+
+            actual_energy_transfer = energy_gained_by_gas
 
             step_efficiency = (actual_energy_transfer / step_input_energy) * 100.0
         end
@@ -266,6 +291,11 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
         push!(density_history, calculate_grid_density(positions, x_grid, y_grid, z_grid))
         push!(energy_deposition_history, energy_deposition_grid_step) # Depósito inelástico del paso
         push!(elastic_energy_deposition_history, elastic_energy_deposition_grid_step) # Depósito elástico del paso
+        
+        # Guardar posiciones actuales para animación
+        if step % 100 == 0
+            push!(position_history, copy(positions))
+        end
 
         # 10. Comprobar Condición de Parada
         if avg_temps_history[end] >= target_temperature
@@ -335,7 +365,8 @@ function run_pic_simulation(initial_positions, initial_velocities, initial_tempe
     return temperatures_history, avg_temps_history, density_history,
            energy_deposition_history, elastic_energy_deposition_history, final_step, reached_target_temp,
            accumulated_input_energy, efficiency_history, avg_efficiency, detailed_data, avg_electron_lifetime, conductivity_history,
-           charge_density_grid, electric_field_grid, potential_grid
+           charge_density_grid, electric_field_grid, potential_grid, electric_field_history, potential_history,
+           verbose ? position_history : []  # Sólo devolver historial si está en modo visualización
 end
 
 # Modificar estimate_efficiency para retornar avg_efficiency_julia como eficiencia principal
@@ -353,10 +384,10 @@ function estimate_efficiency(electron_injection_energy_eV, initial_pressure, mag
 
     # Ejecutar simulación completa (modo no-verbose para búsqueda de parámetros)
     (temperatures_history, avg_temps_history, density_history,
-    energy_deposition_history, elastic_energy_deposition_history, final_step, 
-    reached_target_temp, accumulated_input_energy, efficiency_history, 
-    avg_efficiency, detailed_data, avg_electron_lifetime, 
-    conductivity_history) = run_pic_simulation(
+    energy_deposition_history, elastic_energy_deposition_history, final_step,
+    reached_target_temp, accumulated_input_energy, efficiency_history,
+    avg_efficiency, detailed_data, avg_electron_lifetime,
+    conductivity_history, _, _, _, _, _, _) = run_pic_simulation(
     initial_positions, initial_velocities, initial_temperature_grid,
     initial_air_density_n_value, air_composition, dt, simulated_electrons_per_step,
     magnetic_field, electron_charge, electron_mass, initial_electron_velocity, 
@@ -475,11 +506,8 @@ function parameter_search(x_grid, y_grid, z_grid, anode_voltage, electric_field_
 
                     # --- Configuración para esta iteración ---
                     magnetic_field = [0.0, 0.0, field] # Campo B
-                    # !!! NUEVO: Calcular campo E DENTRO del bucle de potencial !!!
-                    if chamber_height <= 0.0
-                        error("chamber_height debe ser positivo.")
-                    end
-                    electric_field = [0.0, 0.0, -potential / chamber_height] # Campo E
+                    # El campo eléctrico ahora se calcula internamente a partir del potencial (anode_voltage)
+                    # por lo que no necesitamos calcularlo aquí.
 
                     initial_air_density_n = calculate_air_density_n(pressure, initial_temperature)
                     initial_velocity = electron_velocity_from_energy(energy)
@@ -492,15 +520,14 @@ function parameter_search(x_grid, y_grid, z_grid, anode_voltage, electric_field_
                      energy_deposition_history, elastic_energy_deposition_history, final_step,
                      reached_target, accumulated_input_energy, efficiency_history,
                      avg_efficiency, detailed_data, avg_lifetime,
-                     conductivity_history) = run_pic_simulation(
+                     conductivity_history, _, _, _, _, _, _) = run_pic_simulation(
                        initial_positions, initial_velocities, initial_temperature_grid,
                        initial_air_density_n, air_composition, dt, simulated_electrons_per_step,
                        magnetic_field,   # Campo B (variable)
-                       electric_field,   # Campo E (variable ahora)
                        electron_charge,
                        electron_mass,
                        initial_velocity,
-                       x_grid, y_grid, z_grid, anode_voltage, electric_field_update_interval,
+                       x_grid, y_grid, z_grid, potential, electric_field_update_interval,
                        verbose=false, # Modo silencioso
                        max_steps_override=search_max_steps
                    )

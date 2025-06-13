@@ -1,32 +1,32 @@
 --- Reporte de Simulación PIC-MCC ---
-Fecha y Hora: 2025-06-03T16:49:15.344
+Fecha y Hora: 2025-06-13T00:29:56.971
 
 --- Parámetros de Simulación ---
 Temperatura Inicial: 800.0 K
-Presión Inicial: 3.0 MPa
-Densidad Inicial del Aire: 2.71611394351497e26 m^-3
+Presión Inicial: 1.0 MPa
+Densidad Inicial del Aire: 9.0537131450499e25 m^-3
 Energía Inicial de los Electrones: 25.0 eV
-Campo Magnético Axial (Bz): 0.5 T
-Paso de Tiempo (dt): 5.0e-13 s
-Tiempo de Simulación por paso: 5.0e-13 s
-Electrones Simulados por paso: 100
+Campo Magnético Axial (Bz): 1.5 T
+Paso de Tiempo (dt): 5.0e-12 s
+Tiempo de Simulación por paso: 5.0e-12 s
+Electrones Simulados por paso: 1000
 Temperatura Objetivo: 2200.0 K
-Máximo número de pasos: 1000
+Máximo número de pasos: 100
 
 --- Resultados ---
-Temperatura Final Promedio: 1042.5532004460918 K
+Temperatura Final Promedio: 804.5367885552866 K
 Alcanzó Temperatura Objetivo: false
-Número de Pasos Simulados: 1000
-Tiempo Total de Simulación: 5.0e-10 s
-Aumento Total de Energía Interna del Aire: 1364.3617525092668 J
-Energía Total Introducida por Electrones: 2002.7250000000404 J
-Eficiencia de la Simulación: 68.125266949245 %
-Eficiencia Promedio por Paso: 68.125266949245 %
+Número de Pasos Simulados: 100
+Tiempo Total de Simulación: 4.999999999999999e-10 s
+Aumento Total de Energía Interna del Aire: 0.08506478541162465 J
+Energía Total Introducida por Electrones: 0.20027250000000027 J
+Eficiencia de la Simulación: 42.47452117071723 %
+Eficiencia Promedio por Paso: 42.47452117071723 %
 
 --- Plots ---
 Temperatura Promedio vs Tiempo: temperature_vs_time.png
 Eficiencia Promedio vs Tiempo: efficiency_vs_time.png
 Densidad de Electrones al Final (Slice): density_heatmap.png
 Temperatura del Aire al Final (Slice): temperature_heatmap.png
-Tiempo Promedio de Vida de Electrones: 0.09464250256030933 ns
-Conductividad del Plasma Estimada: 2.8089056078523727e-13 S/m
+Tiempo Promedio de Vida de Electrones: 0.006926976858287664 ns
+Conductividad del Plasma Estimada: 6.840385054471039e-12 S/m
