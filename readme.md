@@ -1,4 +1,9 @@
 # Technical Report: PIC-MCC Simulation for Gas Discharge Plasma
+
+| GIF 1 | GIF 2 |
+|-------|-------|
+| ![Electron Positions](plots/electron_positions_animation.gif) | ![Potential Slice](plots/potential_animation.gif) |
+
 ### Nick Vázquez, Eng.
 ## Table of Contents
 1.  **Introduction and Theoretical Framework**
