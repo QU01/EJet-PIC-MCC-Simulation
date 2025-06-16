@@ -1,6 +1,6 @@
 # Technical Report: PIC-MCC Simulation for Gas Discharge Plasma
 
-| GIF 1 | GIF 2 |
+| Electrom Positions | Potential Slice |
 |-------|-------|
 | ![Electron Positions](plots/electron_positions_animation.gif) | ![Potential Slice](plots/potential_animation.gif) |
 
