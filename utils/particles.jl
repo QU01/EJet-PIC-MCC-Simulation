@@ -263,6 +263,38 @@ function move_electrons_cpu(positions, velocities, dt, magnetic_field, E_grid,
     return new_positions, new_velocities
 end
 
+function calculate_work_done_by_induced_field(positions, velocities, dt, Ex_induced, Ey_induced, Ez_induced, x_grid, y_grid, z_grid)
+    work_done = 0.0
+    num_particles = size(positions, 1)
+    if num_particles == 0; return 0.0; end
+
+    # This function will run on the CPU, so we ensure data is on the CPU.
+    positions_cpu = to_cpu(positions)
+    velocities_cpu = to_cpu(velocities)
+    Ex_induced_cpu = to_cpu(Ex_induced)
+    Ey_induced_cpu = to_cpu(Ey_induced)
+    Ez_induced_cpu = to_cpu(Ez_induced)
+
+    for i in 1:num_particles
+        px, py, pz = positions_cpu[i, 1], positions_cpu[i, 2], positions_cpu[i, 3]
+        vx, vy, vz = velocities_cpu[i, 1], velocities_cpu[i, 2], velocities_cpu[i, 3]
+
+        # Interpolate the induced electric field at the particle's position (NGP)
+        ix = clamp(searchsortedlast(x_grid, px), 1, size(Ex_induced_cpu, 1))
+        iy = clamp(searchsortedlast(y_grid, py), 1, size(Ex_induced_cpu, 2))
+        iz = clamp(searchsortedlast(z_grid, pz), 1, size(Ex_induced_cpu, 3))
+
+        E_ind_x = Ex_induced_cpu[ix, iy, iz]
+        E_ind_y = Ey_induced_cpu[ix, iy, iz]
+        E_ind_z = Ez_induced_cpu[ix, iy, iz]
+
+        # Work = q * (E . v) * dt
+        work_done += ELECTRON_CHARGE * (E_ind_x * vx + E_ind_y * vy + E_ind_z * vz) * dt
+    end
+
+    return work_done
+end
+
 function check_timestep_validity(dt, magnetic_field_strength)
     if magnetic_field_strength > 1e-10
         cyclotron_period = 2π * ELECTRON_MASS / (abs(ELECTRON_CHARGE) * magnetic_field_strength)

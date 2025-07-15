@@ -79,6 +79,7 @@ function monte_carlo_collision_kernel!(
         # Arrays de E/S que se modifican
         velocities, inelastic_energy_transfer, elastic_energy_transfer,
         collided_flags, collision_energy_transfers_eV,
+        new_electron_flags, ionization_energy_eVs,
         # Parámetros de la simulación
         air_density_n, dt,
         # Datos de los gases (aplanados en arrays)
@@ -153,6 +154,8 @@ function monte_carlo_collision_kernel!(
         if collision_rand < p_ionize && electron_energy_joules > ionization_energy_joules
             energy_loss_joules = min(ionization_energy_joules, max_transfer)
             inelastic_energy_transfer[i] = energy_loss_joules
+            new_electron_flags[i] = true
+            ionization_energy_eVs[i] = ionization_energy_eV
         elseif collision_rand < (p_ionize + p_excite) && electron_energy_joules > EXCITATION_ENERGY_LOSS_JOULES
             energy_loss_joules = min(EXCITATION_ENERGY_LOSS_JOULES, max_transfer)
             inelastic_energy_transfer[i] = energy_loss_joules
@@ -183,11 +186,11 @@ end
 function monte_carlo_collision_gpu(positions, velocities, air_density_n, dt, gas_data)
     num_particles = size(velocities, 1)
     if num_particles == 0
-        # Devuelve arrays vacíos del tipo correcto (CPU)
-        return velocities, Float64[], Float64[]
+        # Devuelve arrays vacíos del tipo correcto (CPU/GPU)
+        return velocities, Float64[], Float64[], Bool[], Float64[]
     end
 
-    # 1. El array de velocidades ya está en la GPU, no es necesario copiarlo.
+    # 1. El array de velocidades ya está en la GPU.
     vel_d = velocities
 
     # 2. Crear arrays de resultados en la GPU
@@ -195,15 +198,18 @@ function monte_carlo_collision_gpu(positions, velocities, air_density_n, dt, gas
     elastic_d = CUDA.zeros(Float64, num_particles)
     collided_d = CUDA.zeros(Bool, num_particles)
     transfers_eV_d = CUDA.zeros(Float64, num_particles)
+    new_electron_flags_d = CUDA.zeros(Bool, num_particles)
+    ionization_energy_eVs_d = CUDA.zeros(Float64, num_particles)
 
     # 3. Generar números aleatorios en la GPU
     rand_numbers_d = CUDA.rand(Float64, num_particles, 6)
 
-    # 4. Lanzar el kernel (modifica vel_d en el sitio)
+    # 4. Lanzar el kernel
     threads = 256
     blocks = cld(num_particles, threads)
     @cuda threads=threads blocks=blocks monte_carlo_collision_kernel!(
         vel_d, inelastic_d, elastic_d, collided_d, transfers_eV_d,
+        new_electron_flags_d, ionization_energy_eVs_d,
         air_density_n, dt,
         gas_data.masses, gas_data.fractions, gas_data.ion_energies,
         gas_data.n2_E, gas_data.n2_total_cs, gas_data.n2_ion_cs,
@@ -211,13 +217,13 @@ function monte_carlo_collision_gpu(positions, velocities, air_density_n, dt, gas
         rand_numbers_d
     )
 
-    # 5. Copiar SOLO los resultados necesarios (energías) de vuelta a la CPU.
+    # 5. Copiar algunos resultados a la CPU, devolver otros como CuArrays.
     CUDA.synchronize()
     inelastic_transfer = Array(inelastic_d)
     elastic_transfer = Array(elastic_d)
 
-    # Devuelve el array de velocidades de la GPU y los arrays de energía de la CPU.
-    return vel_d, inelastic_transfer, elastic_transfer
+    # Devuelve velocidades, flags y energías de ionización como CuArrays.
+    return vel_d, inelastic_transfer, elastic_transfer, new_electron_flags_d, ionization_energy_eVs_d
 end
 
 
@@ -231,7 +237,7 @@ function monte_carlo_collision_cpu(positions, velocities, air_density_n, dt, air
     rng = Random.default_rng()
     num_particles = size(velocities, 1)
     if num_particles == 0
-        return positions, velocities, Float64[], Bool[], Float64[], Float64[]
+        return velocities, Float64[], Float64[], Bool[], Float64[]
     end
 
     inelastic_energy_transfer = zeros(num_particles)
@@ -239,6 +245,8 @@ function monte_carlo_collision_cpu(positions, velocities, air_density_n, dt, air
     velocities_new = copy(velocities)
     collided_flags = zeros(Bool, num_particles)
     collision_energy_transfers_eV = zeros(num_particles)
+    new_electron_flags = zeros(Bool, num_particles)
+    ionization_energy_eVs = zeros(Float64, num_particles)
 
     v_magnitudes = vec(sqrt.(sum(velocities.^2, dims=2)))
     E_e_joules = electron_energy_from_velocity.(v_magnitudes)
@@ -302,6 +310,8 @@ function monte_carlo_collision_cpu(positions, velocities, air_density_n, dt, air
             if collision_rand < p_ionize && electron_energy_joules > ionization_energy_joules
                 energy_loss_joules = min(ionization_energy_joules, max_transfer)
                 inelastic_energy_transfer[i] = energy_loss_joules
+                new_electron_flags[i] = true
+                ionization_energy_eVs[i] = ionization_energy_eV
             elseif collision_rand < (p_ionize + p_excite) && electron_energy_joules > EXCITATION_ENERGY_LOSS_JOULES
                 energy_loss_joules = min(EXCITATION_ENERGY_LOSS_JOULES, max_transfer)
                 inelastic_energy_transfer[i] = energy_loss_joules
@@ -321,7 +331,7 @@ function monte_carlo_collision_cpu(positions, velocities, air_density_n, dt, air
         end
     end
     
-    return velocities_new, inelastic_energy_transfer, elastic_energy_transfer
+    return velocities_new, inelastic_energy_transfer, elastic_energy_transfer, new_electron_flags, ionization_energy_eVs
 end
 
 
@@ -333,10 +343,10 @@ end
 # Elige automáticamente la mejor implementación (GPU o CPU).
 function monte_carlo_collision(positions, velocities, air_density_n, dt, air_composition, gpu_gas_data)
     if USE_GPU && size(velocities, 1) > 0
-        # La versión GPU ahora devuelve (CuArray, Array, Array)
+        # La versión GPU devuelve (CuArray, Array, Array, CuArray, CuArray)
         return monte_carlo_collision_gpu(positions, velocities, air_density_n, dt, gpu_gas_data)
     else
-        # La versión CPU ahora devuelve (Array, Array, Array)
+        # La versión CPU devuelve (Array, Array, Array, Array, Array)
         return monte_carlo_collision_cpu(positions, velocities, air_density_n, dt, air_composition)
     end
 end

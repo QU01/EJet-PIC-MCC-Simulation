@@ -75,7 +75,8 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
         "electron_count" => Int[], # Empezar vacío
         "inelastic_energy_J" => Float64[],
         "elastic_energy_J" => Float64[],
-        "input_energy_J" => Float64[]
+        "input_energy_J" => Float64[],
+        "secondary_electrons_created" => Int[]
     )
     
     # Animation history (optional, can consume a lot of memory)
@@ -133,6 +134,7 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
         # Calculate time-varying magnetic field and induced electric field
         current_b_field = b_field # Default to static if no solenoid
         total_electric_field_grid = electric_field_grid
+        step_solenoid_energy = 0.0
         
         if haskey(params, :solenoid)
             # Get dynamic magnetic field and induced E-field
@@ -145,16 +147,19 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
             Ey_total = electric_field_grid.Ey .+ Ey_induced
             Ez_total = electric_field_grid.Ez .+ Ez_induced
             total_electric_field_grid = ElectricFieldGrid(Ex_total, Ey_total, Ez_total, electric_field_grid.potential)
-            
-            # Calculate solenoid energy for this step using RMS current
-            I_rms = params.solenoid.current_amplitude / sqrt(2)
-            step_solenoid_energy = (I_rms^2) * params.solenoid.resistance * params.dt
-            accumulated_solenoid_energy += step_solenoid_energy
-            
-            # Debugging output
-            if step % 100 == 0 && verbose
-                println("Step $step: Solenoid energy = $step_solenoid_energy J (I_rms=$I_rms A)")
+
+            # Calculate work done by induced E-field
+            if size(positions, 1) > 0
+                step_solenoid_energy = calculate_work_done_by_induced_field(
+                    positions, velocities, params.dt, 
+                    Ex_induced, Ey_induced, Ez_induced, 
+                    params.x_grid, params.y_grid, params.z_grid
+                ) * params.particle_weight
+            else
+                step_solenoid_energy = 0.0
             end
+
+            accumulated_solenoid_energy += step_solenoid_energy
         end
 
         # Move electrons with combined fields
@@ -208,14 +213,52 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
 
         # --- 5. Monte Carlo Collisions ---
         if size(positions, 1) > 0
-            # La función de colisión devuelve las nuevas velocidades y las transferencias de energía.
-            # El tipo de `new_velocities` dependerá de si se usó la CPU o la GPU.
-            new_velocities, inelastic_transfer, elastic_transfer = monte_carlo_collision(
+            # La función de colisión ahora también devuelve flags de ionización.
+            new_velocities, inelastic_transfer, elastic_transfer, new_electron_flags, ionization_energies_eV = monte_carlo_collision(
                 positions, velocities, params.initial_air_density_n, params.dt, cpu_data.air_composition, gpu_data
             )
-
-            # Actualizamos el array de velocidades del bucle principal.
             velocities = new_velocities
+
+            # --- Creación de Electrones Secundarios ---
+            if any(to_cpu(new_electron_flags))
+                # Traer los datos necesarios a la CPU
+                parent_positions_cpu = to_cpu(positions[to_cpu(new_electron_flags), :])
+                ionization_energies_cpu = to_cpu(ionization_energies_eV[to_cpu(new_electron_flags)])
+                
+                num_secondary = size(parent_positions_cpu, 1)
+                
+                # Crear nuevas velocidades en la CPU
+                secondary_velocities_cpu = zeros(Float32, num_secondary, 3)
+                for i in 1:num_secondary
+                    new_energy_J = ionization_energies_cpu[i] * abs(ELECTRON_CHARGE)
+                    new_speed = sqrt(2 * new_energy_J / ELECTRON_MASS)
+                    random_direction = normalize(randn(rng, 3))
+                    secondary_velocities_cpu[i, :] = random_direction .* new_speed
+                end
+
+                # Añadir los nuevos electrones a los arrays principales
+                if use_gpu
+                    positions = vcat(positions, CuArray(parent_positions_cpu))
+                    velocities = vcat(velocities, CuArray(secondary_velocities_cpu))
+                else
+                    positions = vcat(positions, parent_positions_cpu)
+                    velocities = vcat(velocities, secondary_velocities_cpu)
+                end
+                
+                # Actualizar el seguimiento de tiempos de creación
+                append!(electron_creation_times, fill(current_time, num_secondary))
+
+                # Redimensionar los arrays de transferencia de energía
+                inelastic_transfer = vcat(inelastic_transfer, zeros(num_secondary))
+                elastic_transfer = vcat(elastic_transfer, zeros(num_secondary))
+                
+                if verbose
+                    println("Generated $(num_secondary) secondary electrons from ionization.")
+                end
+                push!(detailed_data["secondary_electrons_created"], num_secondary)
+            else
+                push!(detailed_data["secondary_electrons_created"], 0)
+            end
 
             # Energy limiter (se aplica al array de velocidades actualizado, ya sea de CPU o GPU)
             limit_electron_energy!(velocities, params.min_energy_eV, params.max_energy_eV)
@@ -254,10 +297,7 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
             accumulated_solenoid_energy += step_solenoid_energy
             total_step_input_energy += step_solenoid_energy
             
-            # Debugging output
-            if step % 100 == 0 && verbose
-                println("Step $step: Solenoid energy = $step_solenoid_energy J (I_rms=$I_rms A)")
-            end
+
         end
 
         # Calculate step efficiency with both electron and solenoid energy

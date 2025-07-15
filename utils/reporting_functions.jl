@@ -83,6 +83,7 @@ function generate_report(filename, params, results)
         println(io, "Total Simulated Time: $(results.final_step * params.dt * 1e6) µs")
         println(io, "Average Step Efficiency: $(round(results.avg_efficiency, digits=2)) %")
         println(io, "Average Electron Lifetime: $(round(results.avg_electron_lifetime * 1e9, digits=3)) ns")
+        println(io, "Total Secondary Electrons Created: $(sum(results.detailed_data["secondary_electrons_created"])) ")
         println(io, "Estimated Final Plasma Conductivity: $(round(results.plasma_conductivity, sigdigits=3)) S/m")
 
         # Detailed energy balance calculation

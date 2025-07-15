@@ -1,5 +1,5 @@
 --- PIC-MCC Simulation Report ---
-Date and Time: 2025-07-14T23:25:04.737
+Date and Time: 2025-07-15T12:08:48.567
 
 --- Simulation Parameters ---
 Initial Temperature: 800.0 K
@@ -17,20 +17,21 @@ Simulated Electrons per Step: 50
 Max Simulation Steps: 100
 
 --- Simulation Results ---
-Final Average Temperature: 800.12 K
+Final Average Temperature: 800.51 K
 Reached Target Temperature: false
 Number of Steps Simulated: 100
 Total Simulated Time: 0.0019999999999999996 µs
-Average Step Efficiency: 5.16 %
-Average Electron Lifetime: 0.039 ns
-Estimated Final Plasma Conductivity: 4.47e-12 S/m
+Average Step Efficiency: 22.69 %
+Average Electron Lifetime: 0.073 ns
+Total Secondary Electrons Created: 10992 
+Estimated Final Plasma Conductivity: 7.78e-11 S/m
 
 --- Overall Energy Balance ---
 Total Injected Electron Energy: 2.403270000000001e-6 J
 Initial Gas Internal Energy: 0.015198749999999999 J
-Final Gas Internal Energy: 0.015200935926229984 J
-Change in Internal Energy (ΔU): 2.185926229985105e-6 J
-Overall Thermal Efficiency (ΔU / E_in): 2.65 %
+Final Gas Internal Energy: 0.015208371913039562 J
+Change in Internal Energy (ΔU): 9.621913039563681e-6 J
+Overall Thermal Efficiency (ΔU / E_in): 12.07 %
 
 --- Generated Files ---
 Temperature vs. Time Plot: plots/temperature_vs_time.png

@@ -225,8 +225,8 @@ function main()
         # Animate results if data was stored
         # Se asume que `animate_potential_slice` y `animate_electron_positions` están disponibles.
         if final_run_params.store_animation_data
-            animate_potential_slice(final_results.potential_history, final_run_params.x_grid, final_run_params.z_grid, 1)
-            animate_electron_positions(final_results.position_history, final_run_params.chamber_dims.width, final_run_params.chamber_dims.height)
+            #animate_potential_slice(final_results.potential_history, final_run_params.x_grid, final_run_params.z_grid, 1)
+            #animate_electron_positions(final_results.position_history, final_run_params.chamber_dims.width, final_run_params.chamber_dims.height)
             #animate_electric_field_vectors(final_results.electric_field_history, final_run_params.x_grid, final_run_params.z_grid, 1)
         end
     else

@@ -98,3 +98,4 @@ function calculate_fields(solenoid::SolenoidParameters, x_grid, y_grid, z_grid, 
     
     return b_field_vector, Ex_induced, Ey_induced, Ez_induced
 end
+
