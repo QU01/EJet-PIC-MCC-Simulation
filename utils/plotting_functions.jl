@@ -159,13 +159,14 @@ end
 
 function plot_electric_field_vectors(x_grid, z_grid, Ex, Ey, Ez, slice_index; step=3, title="")
     # GPU: Aseguramos que los componentes del campo estén en la CPU.
-    Ex_cpu, Ey_cpu = to_cpu(Ex), to_cpu(Ey)
+    Ex_cpu = to_cpu(Ex)
+    Ez_cpu = to_cpu(Ez)   # Usamos Ez para el componente vertical
     
     x_plot = x_grid[1:step:end] * 1000
     z_plot = z_grid[1:step:end] * 1000
     
     Ex_slice = Ex_cpu[1:step:end, slice_index, 1:step:end]'
-    Ez_slice = Ey_cpu[1:step:end, slice_index, 1:step:end]' # Nota: Originalmente usabas Ey para el componente z del plot
+    Ez_slice = Ez_cpu[1:step:end, slice_index, 1:step:end]'   # Corregido: ahora usamos Ez
     
     p = quiver(x_plot, z_plot, quiver=(Ex_slice, Ez_slice),
               xlabel="x (mm)", ylabel="z (mm)",
@@ -192,4 +193,106 @@ function animate_potential_slice(potential_history, x_grid, z_grid, slice_index;
     
     gif(anim, filename, fps=fps)
     println("Animación de potencial guardada en: $filename")
+end
+
+function animate_electric_field_vectors(electric_field_history, x_grid, z_grid, slice_index;
+                                        fps=10, filename="plots/electric_field_animation.gif", max_frames=50, step=3)
+    if length(electric_field_history) < 2
+        @warn "No hay suficientes datos de historial de campo eléctrico para animar."
+        return
+    end
+    
+    frame_step = max(1, ceil(Int, length(electric_field_history) / max_frames))
+    frame_indices = 1:frame_step:length(electric_field_history)
+    
+    anim = @animate for i in frame_indices
+        # Extract the electric field components from the struct
+        E_grid = electric_field_history[i]
+        plot_electric_field_vectors(x_grid, z_grid,
+            E_grid.Ex, E_grid.Ey, E_grid.Ez,
+            slice_index;
+            step=step, title="Electric Field Vectors (Step $i)")
+    end
+    
+    gif(anim, filename, fps=fps)
+    println("Animación de campo eléctrico guardada en: $filename")
+end
+
+# ===========================================================================
+# Solenoid Parameter Efficiency Plots
+# ===========================================================================
+
+"""
+    plot_solenoid_parameter_effects(results_df; output_dir="plots")
+
+Generate a multi-panel plot showing the effect of solenoid parameters on efficiency.
+Each parameter (current, frequency, turns, length) gets its own subplot.
+"""
+function plot_solenoid_parameter_effects(results_df; output_dir="plots")
+    # Create a 2x2 grid of subplots
+    p = plot(layout=(2, 2), size=(1200, 900), dpi=300)
+    
+    # Plot Current vs Efficiency
+    scatter!(p[1], results_df.SolenoidCurrent, results_df.FinalEfficiency,
+             xlabel="Solenoid Current (A)", ylabel="Efficiency (%)",
+             title="Current vs Efficiency", legend=false)
+    try
+        # Add linear regression line
+        lin_fit = linreg(results_df.SolenoidCurrent, results_df.FinalEfficiency)
+        plot!(p[1], results_df.SolenoidCurrent, lin_fit.(results_df.SolenoidCurrent),
+              line=(:red, 3), label="Trend")
+    catch e
+        @warn "Could not fit linear model for current: $e"
+    end
+    
+    # Plot Frequency vs Efficiency
+    scatter!(p[2], results_df.SolenoidFrequency, results_df.FinalEfficiency,
+             xlabel="Frequency (Hz)", ylabel=nothing,
+             title="Frequency vs Efficiency", legend=false)
+    try
+        lin_fit = linreg(results_df.SolenoidFrequency, results_df.FinalEfficiency)
+        plot!(p[2], results_df.SolenoidFrequency, lin_fit.(results_df.SolenoidFrequency),
+              line=(:red, 3), label="Trend")
+    catch e
+        @warn "Could not fit linear model for frequency: $e"
+    end
+    
+    # Plot Turns vs Efficiency
+    scatter!(p[3], results_df.SolenoidTurns, results_df.FinalEfficiency,
+             xlabel="Number of Turns", ylabel="Efficiency (%)",
+             title="Turns vs Efficiency", legend=false)
+    try
+        lin_fit = linreg(results_df.SolenoidTurns, results_df.FinalEfficiency)
+        plot!(p[3], results_df.SolenoidTurns, lin_fit.(results_df.SolenoidTurns),
+              line=(:red, 3), label="Trend")
+    catch e
+        @warn "Could not fit linear model for turns: $e"
+    end
+    
+    # Plot Length vs Efficiency
+    scatter!(p[4], results_df.SolenoidLength, results_df.FinalEfficiency,
+             xlabel="Length (m)", ylabel=nothing,
+             title="Length vs Efficiency", legend=false)
+    try
+        lin_fit = linreg(results_df.SolenoidLength, results_df.FinalEfficiency)
+        plot!(p[4], results_df.SolenoidLength, lin_fit.(results_df.SolenoidLength),
+              line=(:red, 3), label="Trend")
+    catch e
+        @warn "Could not fit linear model for length: $e"
+    end
+    
+    # Save the plot
+    if !isdir(output_dir)
+        mkdir(output_dir)
+    end
+    savefig(p, joinpath(output_dir, "solenoid_parameter_effects.png"))
+    return p
+end
+
+# Simple linear regression function
+function linreg(x, y)
+    n = length(x)
+    A = [x ones(n)]
+    coeffs = A \ y
+    return z -> coeffs[1]*z + coeffs[2]
 end

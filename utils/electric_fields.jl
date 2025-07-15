@@ -5,11 +5,9 @@
 using LinearAlgebra
 using Statistics
 
-# GPU: Importar CUDA y la bandera de uso
+# GPU: Importar CUDA y definir bandera de uso
 using CUDA
-# Asumimos que USE_GPU se define en otro archivo (ej. collisions.jl) y es accesible
-# Si no, descomenta la siguiente línea:
-# const USE_GPU = CUDA.functional()
+const USE_GPU = CUDA.functional()
 
 # --- Constantes Físicas ---
 const ε_0 = 8.854187817e-12  # F/m

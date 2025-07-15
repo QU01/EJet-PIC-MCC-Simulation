@@ -216,9 +216,8 @@ function lorentz_force(velocity, magnetic_field, charge)
     return charge .* cross(velocity, magnetic_field)
 end
 
-function initialize_electrons(num_electrons, chamber_dims, initial_electron_velocity)
+function initialize_electrons(rng,num_electrons, chamber_dims, initial_electron_velocity)
     # La inicialización se hace en la CPU, los datos se mueven a la GPU después si es necesario.
-    rng = MersenneTwister(0)
     x_pos = rand(rng, num_electrons) .* chamber_dims.width
     y_pos = rand(rng, num_electrons) .* chamber_dims.length
     z_pos = zeros(num_electrons)

@@ -63,9 +63,6 @@ const O2_IONIZATION_CROSS_SECTION = [
 # CONFIGURACIÓN PARA CPU Y GPU
 # ===========================================================================
 
-# GPU: Agrupamos los arrays de datos crudos en tuplas con nombre.
-# Esto hace que sea fácil pasarlos a la función `setup_gpu_gas_data`
-# que creamos en el archivo `air_properties.jl`.
 const N2_CS_DATA = (
     energy_eV = N2_ENERGY_EV,
     total_cs = N2_TOTAL_CROSS_SECTION,

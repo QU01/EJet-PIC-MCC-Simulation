@@ -7,6 +7,24 @@ using Random
 using DataFrames
 using CUDA
 
+# Import necessary utility files
+include("constants.jl")   # To get K_B
+include("induction_functions.jl")   # For SolenoidParameters
+include("grid_functions.jl")
+include("particles.jl")
+include("electric_fields.jl")
+include("collisions.jl")
+include("reporting_functions.jl")
+
+# Helper function to move data to CPU if it's on GPU, otherwise return as is
+function to_cpu(arr)
+    if typeof(arr) <: CUDA.CuArray
+        return Array(arr)
+    else
+        return arr
+    end
+end
+
 # --- Main Simulation Function ---
 # This function now takes structs for parameters and data for better organization.
 function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
@@ -17,27 +35,36 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
     
     # Determine if we are running on CPU or GPU and set up initial arrays accordingly
     if use_gpu
-        # Move initial data to the GPU
         positions = CuArray(params.initial_positions)
         velocities = CuArray(params.initial_velocities)
         temperature_grid = CuArray(params.initial_temperature_grid)
-        
-        # Initialize grids on the GPU
         charge_density_grid = CUDA.zeros(Float64, nx, ny, nz)
     else
-        # Keep initial data on the CPU
         positions = params.initial_positions
         velocities = params.initial_velocities
         temperature_grid = params.initial_temperature_grid
-        
-        # Initialize grids on the CPU
         charge_density_grid = zeros(Float64, nx, ny, nz)
     end
 
-    # Initial field solve (can be on CPU or GPU depending on charge_density_grid type)
+    # Initial PIC field solve
     potential_grid = solve_poisson_equation(charge_density_grid, params.x_cell_size, params.y_cell_size, params.z_cell_size, params.anode_voltage)
-    Ex, Ey, Ez = calculate_electric_field_from_potential(potential_grid, params.x_cell_size, params.y_cell_size, params.z_cell_size)
-    electric_field_grid = ElectricFieldGrid(Ex, Ey, Ez, potential_grid)
+    Ex_pic, Ey_pic, Ez_pic = calculate_electric_field_from_potential(potential_grid, params.x_cell_size, params.y_cell_size, params.z_cell_size)
+
+    # Initial magnetic field is static field from params
+    electric_field_grid = ElectricFieldGrid(Ex_pic, Ey_pic, Ez_pic, potential_grid)
+    
+    # If solenoid is present, use dynamic fields at t=0
+    if haskey(params, :solenoid)
+        b_field, Ex_induced, Ey_induced, Ez_induced = calculate_fields(
+            params.solenoid, params.x_grid, params.y_grid, params.z_grid, 0.0, use_gpu
+        )
+        electric_field_grid = ElectricFieldGrid(
+            Ex_pic .+ Ex_induced,
+            Ey_pic .+ Ey_induced,
+            Ez_pic .+ Ez_induced,
+            potential_grid
+        )
+    end
 
     # History trackers (mostly kept on CPU for simplicity, except for grids)
     avg_temps_history = [mean(to_cpu(temperature_grid))] # to_cpu handles both cases
@@ -54,13 +81,16 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
     # Animation history (optional, can consume a lot of memory)
     position_history = []
     potential_history = []
+    electric_field_history = []
 
     # State variables
     current_time = 0.0
     step = 0
     accumulated_input_energy = 0.0
+    accumulated_solenoid_energy = 0.0
     electron_creation_times = Float64[]
     electron_lifetimes = Float64[]
+    current_b_field = b_field  # Initialize with static field
 
     if verbose
         println("Starting PIC simulation on ", use_gpu ? "GPU" : "CPU", "...")
@@ -70,11 +100,12 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
     while avg_temps_history[end] < params.target_temperature && step < params.max_steps
         step += 1
         current_time += params.dt
+        rng = MersenneTwister(step)
 
         # --- 1. Inject New Electrons ---
         # Injection is always done on CPU, then data is moved to GPU if needed.
         new_positions_cpu, new_velocities_cpu = initialize_electrons(
-            params.simulated_electrons_per_step, params.chamber_dims, params.initial_electron_velocity
+            rng, params.simulated_electrons_per_step, params.chamber_dims, params.initial_electron_velocity
         )
         
         # Combine old and new particles
@@ -98,10 +129,37 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
             println("Avg Temp: $(round(avg_temps_history[end], digits=1)) K, Active Electrons: $(size(positions, 1))")
         end
 
-        # --- 2. Move Electrons (Boris Pusher) ---
-        # This dispatcher function will call the correct CPU/GPU implementation.
+        # --- 2. Calculate Fields and Move Electrons (Boris Pusher) ---
+        # Calculate time-varying magnetic field and induced electric field
+        current_b_field = b_field # Default to static if no solenoid
+        total_electric_field_grid = electric_field_grid
+        
+        if haskey(params, :solenoid)
+            # Get dynamic magnetic field and induced E-field
+            current_b_field, Ex_induced, Ey_induced, Ez_induced = calculate_fields(
+                params.solenoid, params.x_grid, params.y_grid, params.z_grid, current_time, use_gpu
+            )
+            
+            # Combine PIC E-field with induced E-field
+            Ex_total = electric_field_grid.Ex .+ Ex_induced
+            Ey_total = electric_field_grid.Ey .+ Ey_induced
+            Ez_total = electric_field_grid.Ez .+ Ez_induced
+            total_electric_field_grid = ElectricFieldGrid(Ex_total, Ey_total, Ez_total, electric_field_grid.potential)
+            
+            # Calculate solenoid energy for this step using RMS current
+            I_rms = params.solenoid.current_amplitude / sqrt(2)
+            step_solenoid_energy = (I_rms^2) * params.solenoid.resistance * params.dt
+            accumulated_solenoid_energy += step_solenoid_energy
+            
+            # Debugging output
+            if step % 100 == 0 && verbose
+                println("Step $step: Solenoid energy = $step_solenoid_energy J (I_rms=$I_rms A)")
+            end
+        end
+
+        # Move electrons with combined fields
         positions, velocities = move_electrons(
-            positions, velocities, params.dt, params.magnetic_field, electric_field_grid,
+            positions, velocities, params.dt, current_b_field, total_electric_field_grid,
             params.x_grid, params.y_grid, params.z_grid
         )
 
@@ -115,6 +173,8 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
             lost_creation_times = electron_creation_times[lost_mask_cpu]
             append!(electron_lifetimes, current_time .- lost_creation_times)
         end
+
+        b_field = current_b_field
 
         # Filtramos los arrays de GPU usando la máscara de GPU.
         positions = positions[kept_mask_gpu, :]
@@ -142,6 +202,8 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
             electric_field_grid = ElectricFieldGrid(Ex, Ey, Ez, potential_grid)
             
             if params.store_animation_data; push!(potential_history, to_cpu(potential_grid)); end
+            if params.store_animation_data; push!(electric_field_history, to_cpu(electric_field_grid)); end
+
         end
 
         # --- 5. Monte Carlo Collisions ---
@@ -180,8 +242,31 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
         current_avg_temp = mean(to_cpu(temperature_grid))
         push!(avg_temps_history, current_avg_temp)
         
-        # Calculate step efficiency (optional, can be slow)
-        # ... (logic for efficiency calculation) ...
+        # Initialize solenoid energy for this step
+        step_solenoid_energy = 0.0
+        
+        # Calculate step efficiency including solenoid energy
+        total_step_input_energy = step_input_energy
+        if haskey(params, :solenoid)
+            # RMS current calculation
+            I_rms = params.solenoid.current_amplitude / sqrt(2)
+            step_solenoid_energy = (I_rms^2) * params.solenoid.resistance * params.dt
+            accumulated_solenoid_energy += step_solenoid_energy
+            total_step_input_energy += step_solenoid_energy
+            
+            # Debugging output
+            if step % 100 == 0 && verbose
+                println("Step $step: Solenoid energy = $step_solenoid_energy J (I_rms=$I_rms A)")
+            end
+        end
+
+        # Calculate step efficiency with both electron and solenoid energy
+        if total_step_input_energy > 0
+            step_efficiency = (detailed_data["inelastic_energy_J"][end] + detailed_data["elastic_energy_J"][end]) / total_step_input_energy
+            push!(efficiency_history, step_efficiency * 100)
+        else
+            push!(efficiency_history, 0.0)
+        end
 
         if params.store_animation_data && step % 10 == 0
             push!(position_history, to_cpu(positions))
@@ -205,8 +290,11 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
     final_density_grid = calculate_grid_density(positions, params.x_grid, params.y_grid, params.z_grid)
     avg_e_density = mean(to_cpu(final_density_grid)) / params.cell_volume
     final_pressure = params.initial_air_density_n * K_B * avg_temps_history[end]
+    
+    # Use the last magnetic field from the simulation
+    last_b_field = haskey(params, :solenoid) ? current_b_field : b_field
     plasma_conductivity = calculate_plasma_conductivity(
-        max(1e-5, avg_e_density), avg_temps_history[end], final_pressure, norm(params.magnetic_field)
+        max(1e-5, avg_e_density), avg_temps_history[end], final_pressure, norm(last_b_field)
     )
 
     if verbose
@@ -220,6 +308,7 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
         final_step = final_step,
         reached_target_temp = reached_target_temp,
         accumulated_input_energy = accumulated_input_energy,
+        accumulated_solenoid_energy = accumulated_solenoid_energy,
         avg_temps_history = avg_temps_history,
         efficiency_history = efficiency_history,
         avg_efficiency = avg_efficiency,
@@ -229,7 +318,8 @@ function run_pic_simulation(params, cpu_data, gpu_data; verbose=true)
         final_temperature_grid = temperature_grid,
         detailed_data = detailed_data,
         position_history = position_history,
-        potential_history = potential_history
+        potential_history = potential_history,
+        electric_field_history = electric_field_history
     )
 end
 
@@ -238,22 +328,22 @@ function parameter_search(search_params, base_params, cpu_data, gpu_data)
     println("--- Starting Parameter Search ---")
     
     results_list = []
-    total_combinations = length(search_params.energies) * length(search_params.pressures) * length(search_params.fields) * length(search_params.voltages)
+    total_combinations = length(search_params.energies) * length(search_params.pressures) * length(search_params.solenoid_currents) * length(search_params.voltages)*length(search_params.solenoid_turns)*length(search_params.solenoid_length)*length(search_params.solenoid_frequencies)
     count = 0
 
-    for energy in search_params.energies, pressure in search_params.pressures, field in search_params.fields, voltage in search_params.voltages
+    for energy in search_params.energies, pressure in search_params.pressures, current in search_params.solenoid_currents, frequency in search_params.solenoid_frequencies, turns in search_params.solenoid_turns, len_val in search_params.solenoid_length, voltage in search_params.voltages
         count += 1
-        println("\n($(count)/$(total_combinations)) Evaluating: E=$(energy)eV, P=$(pressure/1e6)MPa, B=$(field)T, V=$(voltage)V")
+        println("\n($(count)/$(total_combinations)) Evaluating: E=$(energy)eV, P=$(pressure/1e6)MPa, Solenoid Current=$(current)A, Solenoid Frequency=$(frequency)Hz, Solenoid Turns=$(turns), Solenoid Length=$(len_val), V=$(voltage)V")
 
         # --- CORRECCIÓN AQUÍ ---
         # 1. Calcular los parámetros dependientes para esta iteración
-        initial_air_density_n = calculate_air_density_n(pressure, base_params.initial_temperature)
+        initial_air_density_n = pressure / (K_B * base_params.initial_temperature)
         initial_electron_velocity = electron_velocity_from_energy(energy)
         
         # 2. Crear los arrays de estado inicial para esta iteración
         #    (Empezamos con 0 electrones, se inyectan en el primer paso)
         initial_positions, initial_velocities = initialize_electrons(
-            0, base_params.chamber_dims, initial_electron_velocity
+            MersenneTwister(count), 0, base_params.chamber_dims, initial_electron_velocity
         )
         initial_temperature_grid = fill(
             base_params.initial_temperature, 
@@ -264,17 +354,22 @@ function parameter_search(search_params, base_params, cpu_data, gpu_data)
         run_params = merge(base_params, (
             electron_injection_energy_eV = energy,
             initial_pressure = pressure,
-            magnetic_field = [0.0, 0.0, field],
             anode_voltage = voltage,
             max_steps = search_params.max_steps,
             field_update_interval = search_params.field_update_interval,
-            
+            solenoid = SolenoidParameters(
+                current_amplitude = current,
+                frequency = frequency,
+                num_turns = turns,
+                length = len_val,
+                resistance = 100.0
+            ),
             # Añadir los campos que faltaban:
             initial_air_density_n = initial_air_density_n,
             initial_electron_velocity = initial_electron_velocity,
             initial_positions = initial_positions,
             initial_velocities = initial_velocities,
-            initial_temperature_grid = initial_temperature_grid
+            initial_temperature_grid = initial_temperature_grid,
         ))
         
         # 4. Ahora la llamada a run_pic_simulation recibirá un `params` completo
@@ -284,7 +379,10 @@ function parameter_search(search_params, base_params, cpu_data, gpu_data)
         push!(results_list, (
             ElectronEnergy = energy,
             Pressure = pressure,
-            MagneticField = field,
+            SolenoidCurrent = current,
+            SolenoidFrequency = frequency,
+            SolenoidTurns = turns,
+            SolenoidLength = len_val,
             AnodeVoltage = voltage,
             FinalEfficiency = sim_results.avg_efficiency,
             AvgLifetime = sim_results.avg_electron_lifetime,
@@ -300,7 +398,7 @@ function parameter_search(search_params, base_params, cpu_data, gpu_data)
     if !isempty(results_df)
         best = first(results_df)
         println("Best Parameters Found:")
-        println("  Energy: $(best.ElectronEnergy) eV, Pressure: $(best.Pressure/1e6) MPa, Field: $(best.MagneticField) T, Voltage: $(best.AnodeVoltage) V")
+        println("  Energy: $(best.ElectronEnergy) eV, Pressure: $(best.Pressure/1e6) MPa, Solenoid Current: $(best.SolenoidCurrent) A, Solenoid Frequency: $(best.SolenoidFrequency) Hz, Solenoid Turns: $(best.SolenoidTurns), Solenoid Length: $(best.SolenoidLength) m, Voltage: $(best.AnodeVoltage) V")
         println("  Best Avg Efficiency: $(round(best.FinalEfficiency, digits=2))%")
     end
     

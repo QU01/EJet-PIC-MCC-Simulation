@@ -19,16 +19,29 @@ Calculates the overall thermal efficiency based on the change in the gas's inter
 """
 function calculate_energy_based_efficiency(initial_temperature, final_temperature,
                                            initial_air_density_n, cell_volume, total_cells,
-                                           accumulated_input_energy)
+                                           accumulated_input_energy, accumulated_solenoid_energy)
     # Calculate initial and final internal energy of the ideal gas
     initial_internal_energy = (3/2) * K_B * initial_temperature * initial_air_density_n * cell_volume * total_cells
     final_internal_energy = (3/2) * K_B * final_temperature * initial_air_density_n * cell_volume * total_cells
     delta_internal_energy = final_internal_energy - initial_internal_energy
 
-    # Calculate efficiency
+    # Calculate efficiency with detailed debugging
+    total_energy_input = accumulated_input_energy + accumulated_solenoid_energy
     efficiency = 0.0
-    if accumulated_input_energy > 1e-20 # Avoid division by zero
-        efficiency = (delta_internal_energy / accumulated_input_energy) * 100
+    
+    println("\n--- ENERGY DEBUG ---")
+    println("Initial internal energy: $initial_internal_energy J")
+    println("Final internal energy: $final_internal_energy J")
+    println("Delta internal energy: $delta_internal_energy J")
+    println("Accumulated electron input energy: $accumulated_input_energy J")
+    println("Accumulated solenoid energy: $accumulated_solenoid_energy J")
+    println("Total energy input: $total_energy_input J")
+    
+    if total_energy_input > 1e-20
+        efficiency = (delta_internal_energy / total_energy_input) * 100
+        println("Calculated efficiency: $efficiency %")
+    else
+        println("Total energy input too small for efficiency calculation")
     end
 
     return efficiency, delta_internal_energy, initial_internal_energy, final_internal_energy
@@ -43,8 +56,6 @@ Handles both CPU (Array) and GPU (CuArray) data by converting to CPU first.
 function generate_report(filename, params, results)
     # GPU: Ensure all data that might come from the GPU is moved to the CPU
     final_avg_temp = to_cpu(results.avg_temps_history[end])
-
-    magnetic_field_strength = norm(params.magnetic_field)
     
     # Open file to write the report
     open(filename, "w") do io
@@ -56,7 +67,10 @@ function generate_report(filename, params, results)
         println(io, "Initial Pressure: $(params.initial_pressure / 1e6) MPa")
         println(io, "Initial Air Density: $(params.initial_air_density_n) m^-3")
         println(io, "Electron Injection Energy: $(params.electron_injection_energy_eV) eV")
-        println(io, "Axial Magnetic Field (Bz): $(magnetic_field_strength) T")
+        println(io, "Solenoid Current: $(params.solenoid.current_amplitude) A")
+        println(io, "Solenoid Frequency: $(params.solenoid.frequency) Hz")
+        println(io, "Solenoid Turns: $(params.solenoid.num_turns)")
+        println(io, "Solenoid Length: $(params.solenoid.length) m")
         println(io, "Anode Voltage: $(params.anode_voltage) V")
         println(io, "Time Step (dt): $(params.dt) s")
         println(io, "Simulated Electrons per Step: $(params.simulated_electrons_per_step)")
@@ -74,7 +88,8 @@ function generate_report(filename, params, results)
         # Detailed energy balance calculation
         eff, delta_U, initial_U, final_U = calculate_energy_based_efficiency(
             params.initial_temperature, final_avg_temp, params.initial_air_density_n,
-            params.cell_volume, params.total_cells, results.accumulated_input_energy
+            params.cell_volume, params.total_cells, results.accumulated_input_energy,
+            results.accumulated_solenoid_energy
         )
         
         println(io, "\n--- Overall Energy Balance ---")
