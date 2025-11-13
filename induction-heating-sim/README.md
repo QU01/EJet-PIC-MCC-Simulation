@@ -23,6 +23,8 @@ This project implements a 2D axisymmetric finite difference simulation of electr
 - 📊 **Interactive visualization**: Real-time 2D contour plots and temporal graphs
 - ⚙️ **Configurable**: Adjust coil, fluid, geometry, and simulation parameters
 - 🌐 **Web-based**: Modern React interface with responsive design
+- 🎯 **Refined mesh**: Non-uniform grid with boundary layer clustering (NEW v2.0)
+- 💻 **CUDA acceleration**: GPU support for 10-100× speedup (NEW v2.0)
 
 ## 📐 Mathematical Model
 
@@ -127,14 +129,28 @@ induction-heating-sim/
 
 ### Running the Application
 
-1. **Start the Julia backend server** (Terminal 1)
+#### Version 2.0 (Recommended - with refined mesh and CUDA)
+
+1. **Start the Julia backend server v2** (Terminal 1)
+   ```bash
+   ./start-backend-v2.sh
+   ```
+   Or manually:
    ```bash
    cd backend
-   julia --project=. src/server.jl
+   julia --project=. src/server_v2.jl
    ```
    Server will start on `http://localhost:8080`
 
+   Features enabled:
+   - ✓ Non-uniform mesh with wall refinement
+   - ✓ CUDA GPU acceleration (auto-detected)
+
 2. **Start the React frontend** (Terminal 2)
+   ```bash
+   ./start-frontend.sh
+   ```
+   Or manually:
    ```bash
    cd frontend
    npm run dev
@@ -143,6 +159,14 @@ induction-heating-sim/
 
 3. **Open your browser**
    Navigate to `http://localhost:3000`
+
+#### Version 1.0 (Classic - uniform mesh, CPU only)
+
+For the original version without mesh refinement:
+```bash
+cd backend
+julia --project=. src/server.jl
+```
 
 ## 📊 Usage
 
