@@ -1,0 +1,39 @@
+# Julia
+backend/Manifest.toml
+backend/.julia/
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+
+# Node.js
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/*.json
+data/*.dat
+data/*.csv
+
+# Logs
+*.log
